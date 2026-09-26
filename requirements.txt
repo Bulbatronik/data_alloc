@@ -1,0 +1,9 @@
+torch
+transformers>=4.56
+trl>=0.24,<2
+datasets
+accelerate
+peft
+pandas
+matplotlib
+wandb
