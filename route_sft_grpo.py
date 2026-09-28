@@ -98,9 +98,20 @@ def render_prompt(tokenizer, question: str) -> str:
         {"role": "user", "content": question},
     ]
     if getattr(tokenizer, "chat_template", None):
-        return tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
+        text = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+            # Llama 3 templates insert today's date; pin it so prompts don't change
+            # between days (ignored by templates that don't use it, e.g. Qwen).
+            date_string="26 Jul 2024",
         )
+        # Some templates (e.g. Llama 3) already contain the BOS token, and the
+        # tokenizer adds it again when the prompt is tokenized. Keep only one.
+        bos = tokenizer.bos_token
+        if bos and text.startswith(bos) and tokenizer("x")["input_ids"][:1] == [tokenizer.bos_token_id]:
+            text = text[len(bos):]
+        return text
     # Generic fallback for base models without a chat template.
     return f"{SYSTEM_PROMPT}\n\nQuestion: {question}\nAnswer:\n"
 
@@ -213,7 +224,6 @@ def completion_nll_per_example(
 
         enc = tokenizer(
             full,
-            add_special_tokens=False,
             padding=True,
             truncation=True,
             max_length=max_length,
@@ -221,7 +231,7 @@ def completion_nll_per_example(
         )
         prompt_lens = [
             min(
-                len(tokenizer(p, add_special_tokens=False)["input_ids"]),
+                len(tokenizer(p)["input_ids"]),
                 max_length,
             )
             for p in ps
@@ -510,6 +520,7 @@ def train_sft(model, tokenizer, ds: Dataset, args, output_dir: Path):
     )
     trainer.train()
     trained_model = trainer.model
+    trained_model.save_pretrained(output_dir)  # adapter after the SFT stage
     tokenizer.padding_side = old_padding_side
     return trained_model
 
@@ -560,6 +571,7 @@ def train_grpo(model, tokenizer, ds: Dataset, args, output_dir: Path):
         peft_config=make_lora_config(args) if not hasattr(model, "peft_config") else None,
     )
     trainer.train()
+    trainer.model.save_pretrained(output_dir)  # adapter after the GRPO stage
     return trainer.model
 
 
@@ -693,19 +705,20 @@ def maybe_init_wandb(args, method: str, n_sft: int, n_grpo: int, strategy: str):
 def finish_wandb(run, row: Dict[str, object]):
     if run is None:
         return
-    run.log(
-        {
-            "final/accuracy": row["accuracy"],
-            "final/correct": row["correct"],
-            "final/n_eval": row["n_eval"],
-            "allocation/num_sft": row["n_sft"],
-            "allocation/num_grpo": row["n_grpo"],
-            "allocation/sft_fraction": row["sft_fraction"],
-        }
-    )
-    run.summary["final/accuracy"] = row["accuracy"]
-    run.summary["final/correct"] = row["correct"]
-    run.summary["final/n_eval"] = row["n_eval"]
+    final = {
+        "final/accuracy": row["accuracy"],
+        "final/correct": row["correct"],
+        "final/n_eval": row["n_eval"],
+        "base/accuracy": row["base_accuracy"],
+        "after_sft/accuracy": row["after_sft_accuracy"],
+        "gain/sft_vs_base": row["sft_gain"],
+        "gain/grpo_vs_start": row["grpo_gain"],
+        "allocation/num_sft": row["n_sft"],
+        "allocation/num_grpo": row["n_grpo"],
+        "allocation/sft_fraction": row["sft_fraction"],
+    }
+    run.log(final)
+    run.summary.update(final)
     run.finish()
 
 
@@ -772,6 +785,23 @@ def run(args):
         del router_model
         cleanup()
 
+    # Untrained model, evaluated once per seed folder (reference for the SFT/GRPO gains).
+    base_path = out_root / "base_eval.json"
+    if methods and not base_path.exists():
+        print("\n=== Evaluating the untrained model ===")
+        base_model = load_fresh_model(args)
+        if torch.cuda.is_available():
+            base_model = base_model.cuda()
+        base_metrics = evaluate(base_model, tokenizer, eval_ds, args)
+        pd.DataFrame(base_metrics.pop("predictions")).to_json(
+            out_root / "base_predictions.jsonl", orient="records", lines=True
+        )
+        base_path.write_text(json.dumps(base_metrics, indent=2))
+        print(f"untrained: accuracy={base_metrics['accuracy']:.4f}")
+        del base_model
+        cleanup()
+    base_accuracy = json.loads(base_path.read_text())["accuracy"] if base_path.exists() else float("nan")
+
     for method in methods:
         print(f"\n{'='*80}\nEXPERIMENT: {method}\n{'='*80}")
         # Reset RNG so a method does not inherit random state consumed by earlier methods.
@@ -811,14 +841,24 @@ def run(args):
             )
 
         model = load_fresh_model(args)
+        after_sft_accuracy = float("nan")
 
         # Every mixed experiment uses exactly this order:
         # base -> SFT on SFT bucket -> GRPO on disjoint GRPO bucket.
+        # Adapters are saved to <method>/sft and <method>/grpo after each stage.
         if len(sft_ds):
             print("[stage 1] SFT")
             if wandb_run is not None:
                 wandb_run.log({"stage/sft_started": 1})
             model = train_sft(model, tokenizer, sft_ds, args, exp_dir / "sft")
+
+            if len(grpo_ds):
+                print("[eval] after SFT, before GRPO")
+                sft_metrics = evaluate(model, tokenizer, eval_ds, args)
+                pd.DataFrame(sft_metrics.pop("predictions")).to_json(
+                    exp_dir / "predictions_after_sft.jsonl", orient="records", lines=True
+                )
+                after_sft_accuracy = sft_metrics["accuracy"]
 
         if len(grpo_ds):
             print("[stage 2] GRPO")
@@ -826,15 +866,17 @@ def run(args):
                 wandb_run.log({"stage/grpo_started": 1})
             model = train_grpo(model, tokenizer, grpo_ds, args, exp_dir / "grpo")
 
-        # Final trained weights (the LoRA adapter only, unless --no_lora).
-        model.save_pretrained(exp_dir / "final_model")
-
         print("[eval] greedy exact-match")
         metrics = evaluate(model, tokenizer, eval_ds, args)
         predictions = metrics.pop("predictions")
         pd.DataFrame(predictions).to_json(
             exp_dir / "predictions.jsonl", orient="records", lines=True
         )
+        if len(sft_ds) and not len(grpo_ds):  # full_sft: the final model is the SFT model
+            after_sft_accuracy = metrics["accuracy"]
+
+        # GRPO starts from the SFT model if there was SFT, otherwise from the untrained model.
+        grpo_start = after_sft_accuracy if len(sft_ds) else base_accuracy
 
         row = {
             "method": method,
@@ -846,6 +888,10 @@ def run(args):
             "n_grpo": n_grpo,
             "sft_fraction": sft_fraction,
             **metrics,
+            "base_accuracy": base_accuracy,
+            "after_sft_accuracy": after_sft_accuracy,
+            "sft_gain": after_sft_accuracy - base_accuracy,  # NaN when there is no SFT
+            "grpo_gain": metrics["accuracy"] - grpo_start if len(grpo_ds) else float("nan"),
         }
         results.append(row)
         pd.DataFrame(results).to_csv(results_path, index=False)

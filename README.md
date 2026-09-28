@@ -73,7 +73,7 @@ W&B: project `sft-grpo-routing`, one group per model (e.g. `Qwen2.5-0.5B`). To r
 srun -p mit_normal -c 2 --mem=8G -t 00:30:00 ./run_all.sh aggregate
 ```
 
-Outputs go to `runs/<model name>/seed_<k>/<method>/` (`final_model/` = trained LoRA adapter, `predictions.jsonl`, `partition.json`). Jobs are requeued on preemption and skip finished allocations.
+Outputs go to `runs/<model name>/seed_<k>/<method>/`: `sft/` and `grpo/` hold the LoRA adapter after each stage, plus `predictions.jsonl`, `predictions_after_sft.jsonl` (mixed runs) and `partition.json`. The untrained model is evaluated once per seed (`base_eval.json`); `results.csv` has `base_accuracy`, `after_sft_accuracy`, `sft_gain` and `grpo_gain`. Jobs are requeued on preemption and skip finished allocations.
 
 ## Run the original 0/25/50/75/100% comparison
 

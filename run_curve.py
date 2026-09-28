@@ -183,6 +183,10 @@ def aggregate_curve(raw_for_plot: pd.DataFrame) -> pd.DataFrame:
             accuracy_min=("accuracy", "min"),
             accuracy_max=("accuracy", "max"),
             n_seeds=("accuracy", "count"),
+            base_accuracy_mean=("base_accuracy", "mean"),
+            after_sft_accuracy_mean=("after_sft_accuracy", "mean"),
+            sft_gain_mean=("sft_gain", "mean"),
+            grpo_gain_mean=("grpo_gain", "mean"),
         )
         .sort_values(["strategy", "n_sft"])
     )
@@ -205,6 +209,10 @@ def make_local_plot(summary: pd.DataFrame, n_total: int, out_png: Path, out_pdf:
             capsize=3,
             label=strategy,
         )
+
+    base = summary["base_accuracy_mean"].mean()
+    if pd.notna(base):
+        ax.axhline(base, color="gray", linestyle="--", label="untrained")
 
     ax.set_xlabel("Number of SFT examples")
     ax.set_ylabel("Final GSM8K exact-match accuracy")

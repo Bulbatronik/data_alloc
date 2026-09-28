@@ -13,6 +13,7 @@ MODEL="${MODEL:-Qwen/Qwen2.5-0.5B}"
 N_TRAIN="${N_TRAIN:-1000}"
 N_EVAL="${N_EVAL:--1}"          # -1 = full GSM8K test set (1319)
 SEEDS="${SEEDS:-42 43 44}"
+COUNTS="${COUNTS:-250 500 750}"   # SFT counts; 0 and N are always added
 PARTITION="${PARTITION:-mit_preemptable}"
 TIME="${TIME:-48:00:00}"
 EXTRA="${EXTRA:-}"
@@ -21,7 +22,7 @@ ARGS=(
   --model "$MODEL"
   --max_train_samples "$N_TRAIN"
   --max_eval_samples "$N_EVAL"
-  --fractions 0 0.25 0.50 0.75 1.0
+  --counts $COUNTS
   --strategies random adaptive
   --bf16
   $EXTRA

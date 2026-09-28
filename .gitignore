@@ -1,0 +1,6 @@
+.claude/
+logs/
+runs/
+wandb/
+
+*.pyc
