@@ -7,7 +7,8 @@ are never edited after registration.
 - `01_before_2026-10-02.md` — registrations made before this policy (§1–§10). They were recorded locally before the
   runs but were **not** publicly timestamped, so readers should treat them as unverified.
 - `02_rl_budget_controls.md` — top-p, matched-budget and RL-learning-rate controls (Llama-3.2-1B, gold traces).
-- `03_r1_arm.md` — SFT on DeepSeek-R1-Distill-Qwen-1.5B traces, then GRPO (Llama-3.2-1B/3B, SmolLM2-1.7B).
+- `03_r1_arm.md` — SFT on DeepSeek-R1-Distill-Qwen-1.5B traces, then GRPO (Llama-3.2-1B/3B, SmolLM2-1.7B), with
+  survival predicted from ŵ and harm from the fitness-gap proxy Δp.
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
