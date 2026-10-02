@@ -78,5 +78,34 @@ Runs: GRPO alone (`full_grpo`), 2 epochs, seeds 42, 43, 44. Compare with the exi
 **Registered prediction:**
 - **M1.** Mean GRPO-alone (2 epochs) ≥ 54.2, i.e. at least 2.0 points above the higher of the two (52.2).
 
-## Outcome
-(appended after the runs)
+## Outcome (scored 2026-10-02 with `runs/theory/scratch/score_prereg02.py`)
+
+All 27 runs completed; none diverged.
+
+| Prediction | Result | Held? |
+|---|---|---|
+| L1 | 8/13 decisive calls correct (registered: at least 10) | **No** |
+| L2 | recovered fraction never decreases with GRPO lr, for all 5 adapters | Yes |
+| P1 | 0 of 4 runs from a039/a068 recovered; 0 of 8 for all top-p=1 runs | Yes |
+| M1 | GRPO alone at 2 epochs: 55.3 / 56.2 / 54.7, mean 55.4 | Yes |
+
+**Recovered / runs at 1× / 2× / 4× GRPO lr:**
+
+| Adapter | w0 | 1× | 2× | 4× |
+|---|---|---|---|---|
+| a016 | 0.16% | 0/1 | 0/2 | 0/2 |
+| a039 | 0.39% | 0/2 | 0/2 | 0/2 |
+| a068 | 0.68% | 0/1 | 0/2 | 0/2 |
+| a105 | 1.05% | 0/2 | 1/2 | 2/2 |
+| a184 | 1.84% | 0/1 | 0/2 | 1/2 |
+
+**L1 misses:**
+- a184 at 2× (2 runs) and at 4× (1 run): predicted to recover, did not.
+- a068 at 4× (2 runs): predicted to recover, did not.
+
+**Reading:**
+- A larger RL step helps, monotonically.
+- A single w0 threshold scaled by 1/Ση does not predict *which* adapters recover.
+- The stated approximation — the same Δp for all adapters — is the likely culprit, but that explanation is post hoc. One example: a184 (SFT lr 5e-5) reaches 50–57 while staying in the gold style, so its own style may have little fitness advantage.
+- P1: at these shares, sampling without nucleus truncation does not rescue the style, so the failures are not an artefact of top-p 0.95.
+- M1: at a matched 2-epoch budget, GRPO alone (55.4) beats gold n=250 (51.0 at 2 epochs; 52.2 with +1 epoch) by 3.2–4.4 points.
