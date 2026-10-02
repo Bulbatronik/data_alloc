@@ -10,6 +10,7 @@ are never edited after registration.
 - `03_r1_arm.md` — SFT on DeepSeek-R1-Distill-Qwen-1.5B traces, then GRPO (Llama-3.2-1B/3B, SmolLM2-1.7B), with
   survival predicted from ŵ and harm from the fitness-gap proxy Δp.
 - `04_loss_normalisation.md` — the same ladder adapters under `dr_grpo` (no per-rollout length normalisation).
+- `05_routing_and_sft_saturation.md` — routing in both directions (gold and teacher traces) and Ding et al.'s SFT-to-saturation rule.
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
