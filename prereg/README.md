@@ -1,0 +1,15 @@
+# Pre-registrations
+
+Each registration is committed and pushed to GitHub **before** any of its runs are submitted. The push time on GitHub
+is the registration time. Outcomes are appended later, in separate commits, under an "Outcome" heading; predictions
+are never edited after registration.
+
+- `01_before_2026-10-02.md` — registrations made before this policy (§1–§10). They were recorded locally before the
+  runs but were **not** publicly timestamped, so readers should treat them as unverified.
+- `02_rl_budget_controls.md` — top-p, matched-budget and RL-learning-rate controls (Llama-3.2-1B, gold traces).
+- `03_r1_arm.md` — SFT on DeepSeek-R1-Distill-Qwen-1.5B traces, then GRPO (Llama-3.2-1B/3B, SmolLM2-1.7B).
+
+Definitions used throughout:
+- w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
+- ŵ — model-agnostic own-style share (`probe.py --own_style`; `runs/theory/style_diagnostic.md`).
+- "recovered" — more than 50% of final greedy test answers are in the own style (`modes.classify`).
