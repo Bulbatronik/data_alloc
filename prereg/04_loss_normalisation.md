@@ -63,4 +63,4 @@ All 14 runs completed; none diverged. Recovered / runs:
 - Removing length normalisation raised recovery from 4/14 to 7/14 runs across these cells.
 - a184, whose own-style continuations are the purest (46% gold hybrids), flipped from 1/4 to 4/4. That fits the length-weighted-fitness account.
 - a068 never recovered in any of 9 runs (grpo 1×/2×/4×, dr_grpo 2×/4×), although its w0 is 0.68% and dr_grpo at 4× is the largest effective budget we tried. Its forced `## Step` answers are 78% gold hybrids.
-- The length correction is real but does not explain every adapter. Two continuation-level effects remain unmodelled: own-style openings followed by gold-style content.
+- The length correction is real but does not explain every adapter. A continuation-level effect is unmodelled: own-style openings followed by gold-style content.
