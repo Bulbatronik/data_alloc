@@ -49,5 +49,35 @@
 - **E3b-2.** Gold: mean final(1 epoch) ≥ mean final(4 epochs).
 - **E3b-3.** Teacher: the mean final at each epoch count is at least 52.7.
 
-## Outcome
-(appended after the runs)
+## Outcome (scored 2026-10-03 with `runs/theory/scratch/score_prereg05.py`)
+
+All 30 runs completed; none diverged.
+
+**E2 — routing direction.** Mean final over 3 seeds; difference from random routing at the same n:
+
+| Source | Rule | n=250 | n=500 |
+|---|---|---|---|
+| gold | adaptive (hard → SFT) | +0.7 | −0.4 |
+| gold | easy (easy → SFT) | −0.6 | **−2.7** |
+| teacher | adaptive | −1.2 | +0.1 |
+| teacher | easy | +0.3 | −1.2 |
+
+- **E2a (gold null): no.** Easy-to-SFT at n=500 lost 2.7 points (41.3 vs 44.0; SDs 1.6 and 2.1). The other gold cells hold.
+- **E2b (teacher null): yes.** All four cells are within 1.5 points.
+
+**E3a — validation NLL vs final accuracy (Spearman ρ).**
+- **E3a-1: yes.** Gold, 18 adapters: ρ = +0.96. More gold SFT lowers held-out gold NLL (0.660 → 0.573) while final accuracy falls (56.6 → 38.7). Ding et al.'s rule picks the worst dose.
+- **E3a-2: yes.** Teacher, 12 adapters: ρ = −0.16.
+
+**E3b — full SFT for k epochs, then GRPO on the same 1000 problems** (2 seeds; mean final, with after-SFT in parentheses):
+
+| Source | 1 epoch | 2 epochs | 4 epochs |
+|---|---|---|---|
+| gold | 47.6 (39.7) | 47.4 (40.2) | 40.4 (36.5) |
+| teacher | 56.1 (54.0) | 56.9 (54.4) | 54.4 (53.0) |
+
+- **E3b-1: yes.** Gold stays at or below 50.0.
+- **E3b-2: yes.** Gold at 1 epoch (47.6) is at least gold at 4 epochs (40.4).
+- **E3b-3: yes.** Teacher stays at or above 52.7.
+
+**Not registered:** with teacher traces, SFT on all 1000 problems followed by GRPO on the same problems (56.1–56.9) beats every disjoint split (53.4–55.2) and GRPO alone (52.7).
