@@ -11,6 +11,7 @@ are never edited after registration.
   survival predicted from ŵ and harm from the fitness-gap proxy Δp.
 - `04_loss_normalisation.md` — the same ladder adapters under `dr_grpo` (no per-rollout length normalisation).
 - `05_routing_and_sft_saturation.md` — routing in both directions (gold and teacher traces) and Ding et al.'s SFT-to-saturation rule.
+- `06_stage_ladder.md` — base, math-mid-trained and instruct Llama-1B: does the training stage set the allocation curve's shape?
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
