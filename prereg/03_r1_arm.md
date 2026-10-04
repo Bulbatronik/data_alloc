@@ -92,5 +92,5 @@ All 20 runs completed. Mean final accuracy by n:
 
 **Reading:**
 - The Δp proxy (untrained minus full-SFT accuracy) did not separate the students. It predicted a cliff for Llama-3B (+4.4) and none for Llama-1B (+1.0), but both show about −2.
-- Under marked grading R2 narrowly fails (−1.9 vs −2.0); see `07`/`08` for the grading audit.
+- Under marked grading R2 narrowly fails (−1.8 vs −2.0; GRPO alone 80.4, n=500 78.6); see `07`/`08` for the grading audit.
 - The survival rule works. The harm-size proxy does not.
