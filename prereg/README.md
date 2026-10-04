@@ -14,6 +14,7 @@ are never edited after registration.
 - `06_stage_ladder.md` — base, math-mid-trained and instruct Llama-1B: does the training stage set the allocation curve's shape?
 - `07_replay_floor_and_step_matched.md` — own-style replay floor (gate for building a method) and step-matched GRPO run to a plateau.
 - `08_marked_reward.md` — RL with a marked-answer reward (no last-number fallback): core rerun and step-matched control.
+- `09_method_gate.md` — gate for forced own-mode openings (competence, hybrids, REFT reach) and a second latent mode (Qwen2.5-Math code reasoning).
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
