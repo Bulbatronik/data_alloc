@@ -65,8 +65,30 @@ Common to both:
 - **S3 (no loss from a small dose).** At step 375, mean(gold n=50) ≥ mean(GRPO alone) − 0.5.
 - **S4 (a good teacher stays harmless).** At step 375, mean(teacher n=250) ≥ mean(GRPO alone) − 1.0.
 
-## Outcome
-(appended after the runs)
+## Outcome, Part G (scored 2026-10-04 with `runs/theory/scratch/score_prereg07g.py`)
+
+All 18 runs completed. w0 after SFT (seeds 42 / 43):
+
+| ρ | n=250 | n=500 | n=750 | Final native share at n=500 | Final accuracy at n=500 |
+|---|---|---|---|---|---|
+| 4% | 0.48% / 0.08% | 0.24% / 1.3% | 1.05% / 1.96% | 0 / 0 | 45.2 / 43.0 |
+| 12% | 3.6% / 2.2% | 11.3% / 8.7% | 10.1% / 11.2% | 1.0 / 1.0 | 54.4 / 55.0 |
+| 16% | 10.1% / 10.0% | 12.3% / 16.0% | 12.5% / 16.3% | 1.0 / 1.0 | 54.8 / 55.3 |
+
+For reference, gold-only n=500 gives a final accuracy of 44.0.
+
+| Prediction | Result | Held? |
+|---|---|---|
+| G1 | ρ=12% w0 = 2.2–11.3%; above the band at n ≥ 500, and max/min 3.1 and 5.0 | **No** |
+| G2 | ρ=16% w0 = 10–16% at every dose; max/min 1.2 and 1.6 | Yes |
+| G3 | ρ=4% w0 **rises** with n (0.08–0.5% → 1.0–2.0%) instead of decaying | **No** |
+| G4 | 4/4 recovered at 12–16%; 0/2 at 4% | Yes |
+
+**Gate decision (registered rule):** G1 and G3 failed, so the fraction-based replay model (critical ρ_c ≈ 7%) is refuted and we do not build on it.
+
+**Not registered:**
+- w0 tracks the absolute number k of own-style traces rather than the fraction ρ: k ≤ 10 gives < 0.5%, k = 20–30 gives 0.2–2%, and k ≥ 40 saturates at 10–16%, whatever the dose.
+- At n=500, 60–80 own-style traces lift final accuracy from 44.0 to 54.4–55.3.
 
 ## Amendment (2026-10-04, after 7 minutes of Part S and before any Part S result)
 

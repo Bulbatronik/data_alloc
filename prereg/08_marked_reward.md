@@ -63,5 +63,26 @@ This is Part S of `07` with `--reward marked`; it replaces the cancelled Part S.
 - **S3 (unlock persists).** At step 375, mean(gold n=50) ≥ mean(GRPO alone) − 0.5.
 - **S4 (teacher harmless).** At step 375, mean(teacher n=250) ≥ mean(GRPO alone) − 1.0.
 
-## Outcome
-(appended after the runs)
+## Outcome, Part C (scored 2026-10-04 with `runs/theory/scratch/score_prereg08c.py`)
+
+All 12 runs completed. Marked accuracy, mean ± SD over 3 seeds:
+
+| Cell | Marked accuracy | Lenient accuracy | Final style |
+|---|---|---|---|
+| GRPO alone | 53.4 ± 1.1 | 53.4 | — |
+| gold n=50 | 56.3 ± 0.6 | | 100% native |
+| gold n=250 | 46.6 ± 0.9 | | 0% native |
+| teacher n=250 | 54.5 ± 0.8 | | |
+
+| Prediction | Result | Held? |
+|---|---|---|
+| C1 | 53.4 | Yes |
+| C2 | unlock +2.9 | Yes |
+| C3 | cliff +6.8 | Yes |
+| C4 | teacher +1.1 | Yes |
+
+- With the marked reward, GRPO alone no longer drifts to unmarked answers: its marked and lenient accuracy are equal.
+- Its marked accuracy is 53.4, against 48.7 when trained with the lenient reward.
+- The core contrasts survive.
+
+Part S′ was submitted after C1 held (jobs `sm375-*`). Checkpoint evaluations are graded lenient by `probe.py`, and will be re-graded marked from the saved completions.
