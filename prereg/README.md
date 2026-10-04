@@ -13,6 +13,7 @@ are never edited after registration.
 - `05_routing_and_sft_saturation.md` — routing in both directions (gold and teacher traces) and Ding et al.'s SFT-to-saturation rule.
 - `06_stage_ladder.md` — base, math-mid-trained and instruct Llama-1B: does the training stage set the allocation curve's shape?
 - `07_replay_floor_and_step_matched.md` — own-style replay floor (gate for building a method) and step-matched GRPO run to a plateau.
+- `08_marked_reward.md` — RL with a marked-answer reward (no last-number fallback): core rerun and step-matched control.
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
