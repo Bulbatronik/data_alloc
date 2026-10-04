@@ -67,3 +67,17 @@ Common to both:
 
 ## Outcome
 (appended after the runs)
+
+## Amendment (2026-10-04, after 7 minutes of Part S and before any Part S result)
+
+Part S was cancelled after about 7 minutes of training; no checkpoint or evaluation exists.
+
+**Reason.** A CPU re-grading of all existing runs (`runs/theory/scratch/rescore_parsers.py`) shows that our lenient reward and grader accept an answer whenever its last number is right, even if it is unmarked. GRPO alone exploits this, increasingly so with more RL: it writes the prompt's placeholder `#### <final numeric answer>` with no number, or no marker at all.
+
+| GRPO-alone run | Lenient accuracy | Explicitly marked answers only |
+|---|---|---|
+| 1 epoch | 52.7 | 48.7 |
+| 2 epochs | 55.4 | 44.4 |
+| 2× lr | 55.0 | 24.3 |
+
+A 375-step run would therefore mostly measure this format drift. Part S will be re-registered with a marked-answer reward before it is resubmitted. Part G is unchanged and still running.
