@@ -55,5 +55,31 @@ The style account says a cliff needs a better own style that SFT extinguishes. N
 
 **Scoring.** The ladder supports "stage sets the curve shape" if B1, B2, O1 and O2 all hold. O3 is secondary.
 
-## Outcome
-(appended after the runs)
+## Outcome (scored 2026-10-04 with `runs/theory/scratch/score_prereg06.py`)
+
+All 33 runs completed. The registered metric is standard (lenient) grading; marked grading is reported alongside (see `08`).
+
+Mean final accuracy over 3 seeds, lenient / marked:
+
+| Model | Source | n=0 | n=100 | n=250 | n=1000 (SFT only) |
+|---|---|---|---|---|---|
+| Base | gold | 4.8 / 1.9 | 8.6 / 7.6 | 9.2 / 8.4 | 10.7 / 10.4 |
+| Base | teacher | | 10.0 / 8.1 | 10.1 / 9.8 | 11.9 / 11.5 |
+| OctoThinker | gold | 53.8 / **21.6** | 58.4 / 58.2 | 56.4 / 56.3 | 43.7 / 43.7 |
+| OctoThinker | teacher | | 56.6 / 56.3 | 59.1 / 58.9 | 57.6 / 57.1 |
+
+(n=0 is GRPO alone, shared by both sources.)
+
+| Prediction | Held? (lenient / marked) | Note |
+|---|---|---|
+| B1 | Yes / Yes | |
+| B2 | Yes / Yes | |
+| O1 | Yes / Yes | |
+| O2 | **No** | At gold n=100 the `native` rollout share *rose* during GRPO (0.01–0.02 → 0.11–0.27); final `native` at n=250 reached 0.14 (registered: < 0.05) |
+| O3 | **No** | Teacher > gold at n=250 (59.1 vs 56.4) but not at n=100 (56.6 vs 58.4) |
+
+**Registered verdict:** O2 failed, so the ladder does **not** support "stage sets the curve shape" as registered.
+
+**Notes:**
+- O2's operationalisation was flawed. ŵ (opening library) put OctoThinker's own `#### Step` opening at 81% after gold n=100. But `modes.classify` labels such answers `gold` whenever they carry `<<>>` annotations, and labels `\boxed` answers `native`. The registered test therefore tracked a different mode from the one ŵ measured.
+- Under marked grading, OctoThinker's GRPO alone collapses (21.6: unmarked answers), while SFT followed by GRPO reaches 56–59. For this mid-trained model, SFT supplies the answer format that RL alone does not find.

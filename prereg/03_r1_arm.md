@@ -73,5 +73,24 @@ After-SFT accuracy at n ≥ 100:
 - R2–R4: on seed means.
 - Runs that diverge or time out are reported and not scored.
 
-## Outcome
-(appended after the runs)
+## Outcome (scored 2026-10-04 with `runs/theory/scratch/score_prereg03.py`; lenient grading as registered)
+
+All 20 runs completed. Mean final accuracy by n:
+
+| Student | n=0 | n=100 | n=250 | n=500 |
+|---|---|---|---|---|
+| Llama-1B (3 seeds) | 53.2 | 57.4 | 51.0 | 51.0 |
+| Llama-3B (2 seeds) | 81.1 | 82.8 | 79.6 | 79.0 |
+| SmolLM2 (2 seeds) | 50.1 | 51.1 | 49.0 | 44.2 |
+
+| Prediction | Result | Held? |
+|---|---|---|
+| R1 | 12/12 decisive runs as called. n=100 recovers (ŵ 20–65%); n=500 does not (ŵ ≤ 0.5%). Every n=250 run (in the band) ended non-recovered | Yes |
+| R2 | Llama-3B final(500) − final(0) = −2.1 (≤ −2.0); final(100) − final(0) = +1.7 | Yes, by 0.1 point |
+| R3 | SmolLM2 final(100) − final(0) = +1.1 | Yes |
+| R4 | Llama-1B −2.2 at n=250 and n=500 (registered: no worse than −2.0) | **No** |
+
+**Reading:**
+- The Δp proxy (untrained minus full-SFT accuracy) did not separate the students. It predicted a cliff for Llama-3B (+4.4) and none for Llama-1B (+1.0), but both show about −2.
+- Under marked grading R2 narrowly fails (−1.9 vs −2.0); see `07`/`08` for the grading audit.
+- The survival rule works. The harm-size proxy does not.

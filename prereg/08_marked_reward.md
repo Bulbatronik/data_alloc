@@ -70,9 +70,9 @@ All 12 runs completed. Marked accuracy, mean ± SD over 3 seeds:
 | Cell | Marked accuracy | Lenient accuracy | Final style |
 |---|---|---|---|
 | GRPO alone | 53.4 ± 1.1 | 53.4 | — |
-| gold n=50 | 56.3 ± 0.6 | | 100% native |
-| gold n=250 | 46.6 ± 0.9 | | 0% native |
-| teacher n=250 | 54.5 ± 0.8 | | |
+| gold n=50 | 56.3 ± 0.6 | 56.5 | 100% native |
+| gold n=250 | 46.6 ± 0.9 | 46.8 | 0% native |
+| teacher n=250 | 54.5 ± 0.8 | 54.5 | |
 
 | Prediction | Result | Held? |
 |---|---|---|
