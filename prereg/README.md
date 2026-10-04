@@ -15,6 +15,7 @@ are never edited after registration.
 - `07_replay_floor_and_step_matched.md` — own-style replay floor (gate for building a method) and step-matched GRPO run to a plateau.
 - `08_marked_reward.md` — RL with a marked-answer reward (no last-number fallback): core rerun and step-matched control.
 - `09_method_gate.md` — gate for forced own-mode openings (competence, hybrids, REFT reach) and a second latent mode (Qwen2.5-Math code reasoning).
+- `10_geometry3k_measurements.md` — Geometry3K per-item measurements (image / text / diagram-description; 32B teacher) before any training.
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
