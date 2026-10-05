@@ -59,3 +59,20 @@ Each × seeds 42, 43.
 
 ## Outcome
 (appended after the runs)
+
+## Amendment (2026-10-05, after seeing Phase-1 seed 42 only; seed 43 and Phase 2 not yet seen)
+
+Seed 42 showed the following:
+
+| SFT traces | Writes the diagram description first | Stops within 1024 tokens |
+|---|---|---|
+| grounded | 100% | 44–69% |
+| as-is | 0% | 93–94% |
+
+So at the registered 1024-token evaluation, grounded arms mostly fail by truncation before `\boxed{}`, which confounds H1.
+
+**Primary analysis:** H1 and H2 are scored exactly as registered, at 1024 tokens.
+
+**Secondary analysis, post hoc and labelled as such:** every Phase-1 adapter is re-evaluated greedily on the full test set at 2048 tokens, and H1/H2 are reported again.
+
+Also noted: untrained test accuracy differs between jobs (27.45 vs 28.12), from batched-decoding nondeterminism (about 0.7 points). Gains are therefore computed against each run's own untrained evaluation.
