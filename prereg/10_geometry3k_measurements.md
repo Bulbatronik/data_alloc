@@ -48,5 +48,32 @@ The teacher's correct samples become the SFT traces.
 
 The training pilot (to be registered as `11`) uses gap-routed SFT arms. It is designed as in `complex_datasets.md` §4 only if the perception-gap class and the knowledge-gap class each have ≥ 300 train items. Otherwise the arms are redesigned before registration.
 
-## Outcome
-(appended after the runs)
+## Outcome (scored 2026-10-05 with `runs/theory/scratch/score_prereg10.py`)
+
+**Runs.** All measurements completed. They ran as `--shard` jobs (6 per student input, 2 for test, 8 for the teacher) to stay inside time limits; this is an implementation change only. Per-item table: `runs/vlm/geo3k/m0/per_item.csv`.
+
+**Means over the 2101 train items.** Test p_img: 0.25.
+
+| Measurement | Mean |
+|---|---|
+| p_img | 0.228 |
+| p_txt | 0.075 |
+| p_cap | 0.240 |
+| p_teacher | 0.495 |
+
+| Prediction | Result | Held? |
+|---|---|---|
+| M1 | p_cap 0.240 > p_img 0.228 | Yes, barely |
+| M2 | p_txt 0.075 ≤ 0.10 | Yes |
+| M3 | p_teacher 0.495 ≥ 0.45 | Yes |
+
+**Class sizes.**
+
+| Class | Items |
+|---|---|
+| perception-gap | **177** |
+| knowledge-gap | **258** |
+| covered | 665 |
+| p_img ≤ 1/8 | 1285 (422 of them teacher-solvable) |
+
+**Pilot gate:** failed. Each gap class has fewer than 300 items, so the pilot arms must be redesigned before `11` is registered, e.g. 150 items per class.

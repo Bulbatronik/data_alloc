@@ -86,3 +86,39 @@ All 12 runs completed. Marked accuracy, mean ± SD over 3 seeds:
 - The core contrasts survive.
 
 Part S′ was submitted after C1 held (jobs `sm375-*`). Checkpoint evaluations are graded lenient by `probe.py`, and will be re-graded marked from the saved completions.
+
+## Outcome, Part S′ (scored 2026-10-05 with `runs/theory/scratch/score_prereg08s.py`)
+
+All 21 runs completed. Final marked accuracy, mean ± SD over 3 seeds, after 375 steps:
+
+| Cell | Accuracy | Final native share |
+|---|---|---|
+| GRPO alone | 56.0 ± 2.4 | 0 |
+| gold n=50 | 57.8 ± 1.0 | 0.99 |
+| gold n=250 | 57.1 ± 1.0 | 0 |
+| gold n=500 | 57.1 ± 1.0 | 0 |
+| teacher n=50 | 57.4 ± 2.2 | 0.33 |
+| teacher n=250 | 59.6 ± 0.9 | 0 |
+| teacher n=500 | 60.3 ± 1.2 | 0 |
+
+Checkpoint accuracy, seed mean, re-graded marked:
+
+| Cell | Step 75 | Step 225 | Step 375 |
+|---|---|---|---|
+| GRPO alone | 53.4 | 57.0 | 54.7 |
+| gold n=250 | 48.3 | 54.6 | 56.9 |
+| gold n=500 | 47.1 | 54.4 | 57.3 |
+| teacher n=250 | 55.0 | 58.9 | 60.2 |
+
+| Prediction | Result | Held? |
+|---|---|---|
+| S1 | GRPO alone step 375 − step 300 = −1.6 | **No**, narrowly; S2–S4 are therefore reported as "not at plateau". The gold arms are still rising at step 375 |
+| S2 | GRPO alone − gold n=250 = **−1.1** (registered ≥ 2.0) | **No**. The standard-budget cliff (6.8 points, Part C) is gone with more RL |
+| S3 | gold n=50 − GRPO alone = +1.8 | Yes |
+| S4 | teacher n=250 − GRPO alone = +3.6 | Yes |
+
+**Notes:**
+- One run degenerated: GRPO alone, seed 43, repeats `#### N` until the length limit; 22% of answers stop. It is the only run with a stop rate below 0.96.
+- The extinct `## Step` mode was never revived: its rollout share was 0 at every logged step in the gold n=250 runs. Instead GRPO repaired the gold style itself: `<<>>` annotations went from 97% to 0%, and answers got longer and added some prose.
+
+**Reading:** the standard-budget allocation cliff is a rate effect, not an end state. With adequate RL, every SFT arm ends at or above GRPO alone, and more teacher SFT is better.

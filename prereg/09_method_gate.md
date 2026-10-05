@@ -51,5 +51,20 @@ All accuracies use the marked grading of `08`.
 
 **Use.** Mode B becomes the method's second test mode only if B1 holds. If B1 fails, it is dropped and reported.
 
-## Outcome
-(appended after the runs)
+## Outcome (scored 2026-10-05 with `runs/theory/scratch/score_prereg09.py`)
+
+**Part A.** Seed means, marked grading:
+
+| Cell | p_res | p_own | A1 (gap) | A2 (hybrid rate) | A3 (top-20 share) |
+|---|---|---|---|---|---|
+| gold n=250 | 0.39 | 0.56 | +0.17 ✓ | 0.62 **✗** | 0.00 ✓ |
+| R1 n=500 | 0.50 | 0.65 | +0.15 ✓ | 0.04 ✓ | 0.00 ✓ |
+| untrained | 0.46 | 0.69 | | | 0.82 |
+
+- **Gate rule (all three on both cells): failed**, on gold A2. The method is not built under this registration.
+- Not registered: the realistic R1 cell passes all three checks. After SFT, the own mode is out of REFT's top-20 reach on every prompt, against 82% for the untrained model.
+
+**Part B (Qwen2.5-Math-1.5B, MATH levels 1–3).**
+- **B1: yes.** The untrained code share is 0.39. Code answers are far more accurate than natural-language ones (0.56 vs 0.13). Forced ```` ```python ```` openings score 0.52.
+- **B2: yes.** NL-only SFT drives the code share from 0.42 (n=50) to 0.18 (n=100), 0.017 (n=250), 0.002 (n=500) and 0 (n=1000).
+- Not registered: accuracy after SFT *rises* even as code dies (0.30 untrained → 0.57 at full SFT), because the SFT'd natural-language style becomes competent.
