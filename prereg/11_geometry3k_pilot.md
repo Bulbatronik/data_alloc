@@ -94,3 +94,20 @@ So at the registered 1024-token evaluation, grounded arms mostly fail by truncat
 **Secondary analysis, post hoc and labelled as such:** every Phase-1 adapter is re-evaluated greedily on the full test set at 2048 tokens, and H1/H2 are reported again.
 
 Also noted: untrained test accuracy differs between jobs (27.45 vs 28.12), from batched-decoding nondeterminism (about 0.7 points). Gains are therefore computed against each run's own untrained evaluation.
+
+## Outcome, Phase 1 secondary — POST HOC (2048-token re-evaluation; scored 2026-10-05 with `runs/theory/scratch/score_prereg11.py`)
+
+All 13 evaluations completed (untrained plus 12 adapters). Untrained accuracy: 27.6.
+
+| SFT class | As-is gain | Grounded gain | Stop rate within 2048 tokens (as-is / grounded) |
+|---|---|---|---|
+| perception-gap | +8.3 | −1.8 | 0.99 / 0.76 |
+| random | +6.7 | −7.4 | 0.98 / 0.65 |
+| knowledge-gap | +4.5 | −12.7 | 0.98 / 0.59 |
+
+- H1 is still not supported: grounded − as-is is −10.2 for perception-gap and −17.2 for knowledge-gap. H2 is −2.3.
+- **Why grounding fails is not the token limit.** Grounded-SFT models always start by writing a diagram description, then hallucinate facts and loop: in unfinished answers single lines such as "EF = 8." repeat hundreds of times.
+- So at 3B with 131 examples, teaching the model to *generate* the gold description breaks decoding. H1 cannot be tested with grounding as an output; it needs the description supplied as an input.
+- Untrained evaluations vary between jobs (25.96–28.12) from batched-decoding nondeterminism, more than the 0.7 noted in the amendment.
+
+**Reading:** both Phase-1 predictions of the unit-bottleneck model fail on Geometry3K. With as-is traces, perception-gap items give the largest SFT gain and knowledge-gap items the smallest.
