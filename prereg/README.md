@@ -16,6 +16,8 @@ are never edited after registration.
 - `08_marked_reward.md` — RL with a marked-answer reward (no last-number fallback): core rerun and step-matched control.
 - `09_method_gate.md` — gate for forced own-mode openings (competence, hybrids, REFT reach) and a second latent mode (Qwen2.5-Math code reasoning).
 - `10_geometry3k_measurements.md` — Geometry3K per-item measurements (image / text / diagram-description; 32B teacher) before any training.
+- `11_geometry3k_pilot.md` — Geometry3K pilot: class × trace-grounding SFT ablation, and allocation by failure class at matched RL steps.
+- `12_r1_plateau.md` — does the R1-distill cliff vanish with more RL (375 steps, marked reward)?
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).

@@ -1,0 +1,61 @@
+# 11 — Geometry3K pilot: does a sample's SFT value depend on *why* it fails? (registered 2026-10-05, before these runs)
+
+**Theory.** `runs/directions/sample_value.md` (unit-bottleneck model):
+- SFT supplies missing knowledge units; RL only amplifies covered units.
+- Its hallmark prediction is an interaction between failure type and trace grounding.
+
+**Measurements.** `10`; per-item table `runs/vlm/geo3k/m0/per_item.csv`.
+
+**Redesign.** The `10` gate failed (fewer than 300 items per gap class). This design replaces `complex_datasets.md` §4.
+
+**Common setup.**
+- Student: Qwen2.5-VL-3B-Instruct, LoRA on the language model, `--prompt_style boxed_user`, `--reward marked`.
+- Pool: the 2101 Geometry3K train items. Test: the 601 official test items, image input, greedy, 1024 tokens.
+- SFT: lr 1e-4, **2 epochs**, max length 2048, gradient checkpointing.
+- SFT traces are the Qwen2.5-VL-32B teacher's first correct sample, in two variants:
+  - **as-is:** `runs/vlm/geo3k/pilot/teacher.jsonl`;
+  - **grounded:** the same trace preceded by the gold Inter-GPS diagram description (`teacher_grounded.jsonl`), so the student learns to state what the diagram shows before reasoning.
+- Inputs are built by `runs/vlm/geo3k/prep_pilot.py`. Id lists use `random.Random(0)` and are restricted to items with a correct teacher trace (1331 items).
+- Seeds 42 and 43.
+
+## Phase 1 — SFT only, class × grounding (12 runs; mechanism test without RL)
+
+**Arms.** {class} × {as-is, grounded} × {seed 42, 43}, with `listed_sft --skip_grpo`. All three class lists have 131 items.
+
+| Class | Items | Mean p_img |
+|---|---|---|
+| perception-gap | 131 (all eligible) | 0.05 |
+| knowledge-gap | 131 | 0.04 |
+| random | 131 | 0.31 |
+
+"Gain" = test accuracy minus untrained test accuracy, averaged over seeds.
+
+**Predictions.**
+- **H1 (hallmark interaction).** Both must hold:
+  - perception-gap: gain(grounded) − gain(as-is) ≥ 2.0;
+  - knowledge-gap: |gain(grounded) − gain(as-is)| ≤ 1.0.
+
+  A difficulty-only account predicts no class-specific grounding effect.
+- **H2 (missing units carry SFT value).** knowledge-gap gain(as-is) ≥ random gain(as-is) + 1.0.
+
+## Phase 2 — allocation at matched RL budget (8 runs)
+
+**Arms.** All arms run exactly 150 GRPO steps (8 prompts × 8 samples, default linear schedule) on the items not used for SFT.
+
+| Arm | SFT items (as-is traces) | Mean p_img of SFT items |
+|---|---|---|
+| R0 | none (`full_grpo`) | — |
+| zero-pass→SFT | `zeropass300`: 300 items with p_img ≤ 1/8 | 0.05 |
+| easy→SFT | `easy300`: 300 items with the highest p_img | 0.81 |
+| random→SFT | `random300` | 0.34 |
+
+Each × seeds 42, 43.
+
+**Predictions.**
+- **P2.** mean(zero-pass) − mean(easy) ≥ 3.0. On GSM8K the same contrast was ≈ 0 (prereg `05`).
+- **P2b.** mean(zero-pass) ≥ mean(random) + 1.0.
+
+**Not predicted, reported:** each SFT arm against R0.
+
+## Outcome
+(appended after the runs)
