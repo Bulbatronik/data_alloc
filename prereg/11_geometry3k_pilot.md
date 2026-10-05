@@ -57,8 +57,26 @@ Each × seeds 42, 43.
 
 **Not predicted, reported:** each SFT arm against R0.
 
-## Outcome
-(appended after the runs)
+## Outcome, Phase 1 primary (scored 2026-10-05 with `runs/theory/scratch/score_prereg11p1.py`; registered 1024-token evaluation)
+
+All 12 runs completed. Gain = test accuracy minus the run's own untrained accuracy (seed 42 / 43):
+
+| Class | As-is traces | Grounded traces | Grounded runs that stop within 1024 tokens |
+|---|---|---|---|
+| perception-gap | +8.0 / +7.5 (mean **+7.7**) | −2.8 / −3.0 (mean −2.9) | 0.68–0.69 |
+| knowledge-gap | +3.8 / +7.2 (mean **+5.5**) | −12.3 / −13.8 (mean −13.1) | 0.41–0.44 |
+| random | +5.3 / +6.7 (mean **+6.0**) | −10.8 / −4.7 (mean −7.7) | 0.56–0.63 |
+
+As-is runs stop within 1024 tokens 0.93–0.95 of the time.
+
+| Prediction | Result | Held? |
+|---|---|---|
+| H1 | perception grounded − as-is = −10.7; knowledge \|grounded − as-is\| = 18.6 | **No** |
+| H2 | knowledge − random (as-is) = −0.5 | **No** |
+
+**Reading:**
+- The grounded arms are dominated by truncation; see the amendment below. The 2048-token secondary analysis is pending.
+- Not registered: with as-is traces, perception-gap items give the largest SFT gain.
 
 ## Amendment (2026-10-05, after seeing Phase-1 seed 42 only; seed 43 and Phase 2 not yet seen)
 
