@@ -18,3 +18,11 @@
 
 ## Outcome
 (appended after the runs)
+
+## Amendment (2026-10-06, implementation only; no Part-12 outcome seen except seed-43 GRPO alone)
+
+Both jobs were preempted several times. Seed 42 lost GRPO-alone progress three times, most recently at step 359 of 375.
+
+`route_sft_grpo.py` now resumes GRPO from the last checkpoint in a method's directory (`get_last_checkpoint`). Checkpoints now hold the full trainer state, and the resubmitted jobs save every 25 steps.
+
+**Deviation.** The checkpoints that already existed (step 225: seed 42 GRPO alone, seed 43 n=250) were saved model-only. Those two runs therefore resume at step 225 with the Adam moments reset, and the LR schedule's 10 warmup steps repeat. All other runs are unaffected.
