@@ -111,3 +111,27 @@ All 13 evaluations completed (untrained plus 12 adapters). Untrained accuracy: 2
 - Untrained evaluations vary between jobs (25.96–28.12) from batched-decoding nondeterminism, more than the 0.7 noted in the amendment.
 
 **Reading:** both Phase-1 predictions of the unit-bottleneck model fail on Geometry3K. With as-is traces, perception-gap items give the largest SFT gain and knowledge-gap items the smallest.
+
+## Outcome, Phase 2 (scored 2026-10-06 with `runs/theory/scratch/score_prereg11.py`)
+
+All 8 runs completed. Some were preempted and rerun from scratch; no checkpoints were reused.
+
+Final accuracy after 150 GRPO steps, mean ± SD over 2 seeds (after-SFT accuracy before RL in brackets):
+
+| Arm | Final | After SFT |
+|---|---|---|
+| GRPO alone | 31.4 ± 0.4 | — |
+| zero-pass→SFT | 36.0 ± 0.6 | 37.4 |
+| random→SFT | 35.6 ± 3.1 | 34.0 |
+| easy→SFT | 34.5 ± 2.2 | 32.6 |
+
+| Prediction | Result | Held? |
+|---|---|---|
+| P2 | zero-pass − easy = +1.5 (registered ≥ 3.0) | **No** |
+| P2b | zero-pass − random = +0.4 (registered ≥ 1.0) | **No** |
+
+**Not registered:**
+- Every SFT-then-RL arm beats GRPO alone, by 3.1–4.7 points.
+- **Before RL**, the ordering the value model predicts is clear: zero-pass 37.4 > random 34.0 > easy 32.6 (SDs 0.2–1.1).
+- 150 GRPO steps then shrink the differences. RL adds nothing after zero-pass SFT (37.4 → 36.0), but +2–3 after random or easy SFT, with large seed variance (easy seed 43: +0.0; random seed 43: +4.5).
+- This matches the text-track finding (`08` Part S′): with enough RL, *which* items go to SFT matters little, while *having* SFT matters.
