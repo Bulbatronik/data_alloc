@@ -16,8 +16,31 @@
 - **Q1.** mean final(n=250) ≥ mean final(0) − 1.0, and mean final(n=500) ≥ mean final(0) − 1.0.
 - **Q2.** The extinct own mode is not revived: final greedy `## Step` share < 5% at n = 250 and n = 500 in every run.
 
-## Outcome
-(appended after the runs)
+## Outcome (scored 2026-10-11 with `runs/theory/scratch/score_prereg12.py`)
+
+All 6 runs completed. Repeated preemption was handled by resumable job chains; see the amendment below.
+
+Final marked accuracy after 375 GRPO steps:
+
+| Cell | Seed 42 | Seed 43 | Mean | `## Step` share | `</think>` share |
+|---|---|---|---|---|---|
+| GRPO alone | 56.9 | 60.2 | 58.6 | 0 / **1.00** | 0 / 0 |
+| R1 n=250 | 59.9 | 58.9 | 59.4 | 0 / 0 | 0 / 0 |
+| R1 n=500 | 57.5 | 57.6 | 57.6 | ≤ 0.003 | 0.96 |
+
+At step 225 (marked): GRPO alone 55.9 / 59.8, n=250 59.4 / 57.5, n=500 57.9 / 58.7.
+
+| Prediction | Result | Held? |
+|---|---|---|
+| Q1 | final(250) − final(0) = +0.8; final(500) − final(0) = −1.0 | Yes; n=500 is exactly at the threshold |
+| Q2 | the `## Step` share is at most 0.3% in every SFT'd run | Yes |
+
+**Notes:**
+- GRPO alone degenerated in seed 42: answers stop only 41% of the time (it repeats the final answer). This mirrors seed 43 in `08` S′.
+- In seed 43, GRPO alone *discovered* the native `## Step` style: 100% of final answers, starting from a share near 1e-5. So long RL from the untrained model can find this mode; RL from SFT'd adapters never revived it.
+- The R1 style (`</think>`) survives at n=500 and reaches GRPO-alone level.
+
+**Reading:** the R1-distill cliff at the standard budget (−2.2, `03`) closes with enough RL, as the gold cliff did (`08` S′).
 
 ## Amendment (2026-10-06, implementation only; no Part-12 outcome seen except seed-43 GRPO alone)
 
