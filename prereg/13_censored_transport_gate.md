@@ -83,3 +83,32 @@ E1 does not decide anything. It shows whether a never-sampled drift exists in da
 
 ## Scoring
 `runs/theory/scratch/score_prereg13.py`. Runs that diverge (stop rate below 0.5 over the last 20 steps) are reported and left out of the gate, as long as at least 2 runs per start and loss type remain. Otherwise the gate is rerun with new seeds.
+
+## Outcome, Part E1 (scored 2026-10-12 with `runs/theory/scratch/score_prereg13.py`)
+
+All 69 adapters and the untrained model were probed on the 1319 test prompts. Drift is m(375) − m(0) in nats on the 256 panel prompts, per seed (42 / 43 / 44):
+
+| Arm | Seed 42 | Seed 43 | Seed 44 |
+|---|---|---|---|
+| gold n=250 | −9.49 | −8.03 | −4.82 |
+| gold n=500 | −4.53 | −5.45 | −3.24 |
+| GRPO alone (from untrained) | −5.81 | −5.13 | −6.77 |
+| teacher n=250 | −2.69 | −0.28 | −3.60 |
+
+| Prediction | Result | Held? |
+|---|---|---|
+| E1-a | gold drift −5.93 ± 0.96 (SE, n=6); −5.92 ± 0.95 on all 1319 prompts | Yes |
+
+**Not registered (post hoc).** We ran the same probe for two placebo openings that no run produces: `## Solution` and `Solution:` (`runs/theory/scratch/e1_placebo13.py`). Drift, seed mean:
+
+| Arm | `## Step` | `## Solution` | `Solution:` |
+|---|---|---|---|
+| gold n=250 | −7.5 | −9.1 | −7.1 |
+| gold n=500 | −4.4 | −6.4 | −5.8 |
+| GRPO alone | −5.9 | −12.4 | −14.1 |
+| teacher n=250 | −2.2 | −5.5 | −1.6 |
+
+**Reading.**
+- In these uncensored 375-step runs, every opening the policy does not produce loses probability, in every arm, including GRPO from the untrained model. `## Step` usually loses less than the placebos.
+- The registered E1 drift is therefore not specific to the extinguished style. It is consistent with generic sharpening (squeezing) of unsampled openings.
+- The transport hypothesis's upward drift from the untrained start does not appear in these runs. E2, which censors the target and also uses `dr_grpo`, remains the registered test.
