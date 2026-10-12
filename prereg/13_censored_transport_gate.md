@@ -112,3 +112,86 @@ All 69 adapters and the untrained model were probed on the 1319 test prompts. Dr
 - In these uncensored 375-step runs, every opening the policy does not produce loses probability, in every arm, including GRPO from the untrained model. `## Step` usually loses less than the placebos.
 - The registered E1 drift is therefore not specific to the extinguished style. It is consistent with generic sharpening (squeezing) of unsampled openings.
 - The transport hypothesis's upward drift from the untrained start does not appear in these runs. E2, which censors the target and also uses `dr_grpo`, remains the registered test.
+
+## Outcome, Part E2 (scored 2026-10-12 with `runs/theory/scratch/score_prereg13.py`)
+
+All 12 runs finished their 150 steps with no preemption or resume.
+- Jobs: 25633697, 25633699, 25633701, 25633702, 25637250 and 25637857.
+- The `dr_grpo` jobs for seeds 42 and 43 never started on `mit_preemptable`. We cancelled them there and resubmitted the same command on `mit_normal_gpu`.
+- No run diverged: the stop rate over the last 20 steps was at least 0.986 in every run. All 12 runs therefore enter the gate.
+
+Drift D = m(150) − m(0) of `## Step`, in nats, on the 256 panel prompts:
+
+| Start | Loss | Seed 42 | Seed 43 | Seed 44 | Mean ± SE (n=3) |
+|---|---|---|---|---|---|
+| untrained | `grpo` | −0.89 | +0.01 | −2.44 | −1.11 ± 0.72 |
+| untrained | `dr_grpo` | +0.07 | +0.13 | +0.84 | +0.35 ± 0.25 |
+| gold n=250 | `grpo` | −1.44 | −0.61 | +0.46 | −0.53 ± 0.55 |
+| gold n=250 | `dr_grpo` | +0.87 | −0.83 | +0.85 | +0.30 ± 0.56 |
+
+| Start | D̄ ± SE (n=6) | \|D̄\| ≥ 2 SE? |
+|---|---|---|
+| untrained | −0.38 ± 0.47 | No |
+| gold n=250 | −0.12 ± 0.40 | No |
+
+| Rule | Result | Fires? |
+|---|---|---|
+| K1 | Neither start's drift reaches 2 SE | **Yes** |
+| K2 | No start has a significant drift, so no drift can be attributed to length normalisation | No |
+
+**Decision.** K1 fires. As registered:
+- We drop the ICML pivot (censored off-sample transport).
+- We write the COLM/TMLR paper (`runs/reviews/round3/track1_venues_narrative.md`) with the Part H measurement changes.
+- We do not register prereg 14.
+
+**Reported, not predicted.**
+- **Predicted sign** (D̄(untrained) > 0 > D̄(gold-250)): not observed. Both means are negative and within 1 SE of 0. Only `dr_grpo` from the untrained start is positive in all 3 seeds (+0.35 ± 0.25, 1.4 SE).
+- **Entry rate.** Censoring almost never acted. Rollouts classified `step` and censored, per run:
+  - untrained start: 0–3 of 9,600;
+  - gold-250 start: 0.
+
+  Both starts therefore measured the drift of an opening the policy does not sample, and censoring did not change that.
+- **Panel levels.** Mean log p of each opening at the start and end of training, averaged over seeds and loss types:
+
+  | Start | Step | `## Step` | `## Solution` | `Solution:` |
+  |---|---|---|---|---|
+  | untrained | 0 | −10.86 | −19.99 | −17.57 |
+  | untrained | 150 | −11.24 | −21.69 | −20.77 |
+  | gold n=250 | 0 | −8.83 | −21.25 | −14.44 |
+  | gold n=250 | 150 | −8.94 | −21.42 | −15.46 |
+
+- **Placebo drifts** (mean over 3 seeds):
+
+  | Start | Loss | `## Solution` | `Solution:` |
+  |---|---|---|---|
+  | untrained | `grpo` | −2.85 | −4.60 |
+  | untrained | `dr_grpo` | −0.55 | −1.79 |
+  | gold n=250 | `grpo` | −0.28 | −1.06 |
+  | gold n=250 | `dr_grpo` | −0.08 | −0.97 |
+
+  `Solution:` loses probability in all 12 runs. `## Solution` loses in 9 of 12, and `## Step` in 5 of 12. As in E1, the target opening loses less than the placebos. Its starting level is also higher, which these runs cannot separate from that difference.
+- **Stop rate, entropy, clip ratio.**
+  - Stop rate over the last 20 steps: 0.986–0.999.
+  - Policy entropy fell from about 0.28 to 0.23–0.27 (untrained start) and from about 0.34 to 0.31 (gold start).
+  - Clip ratio was 0 in every run. This is expected: there is one update per batch, so the importance ratio is 1.
+  - The run with the largest drop in entropy (untrained, `grpo`, seed 44: 0.27 → 0.20) also has the largest negative drifts (−2.44, −6.09, −8.42).
+- **Training reward** (mean over the first 20 vs the last 20 steps):
+  - untrained start: from 0.46–0.54 to 0.61–0.64;
+  - gold start: from 0.38–0.45 to 0.51–0.58.
+- **Rollout styles.** From the untrained start, 97% of rollouts use the prompt's `#### N` style. From the gold start, 84–95% use the gold style.
+- **Final test pass@1** (T = 0.6, k = 4, 1319 questions, seed mean):
+
+  | Model | `grpo` | `dr_grpo` |
+  |---|---|---|
+  | untrained (no training) | 0.362 | 0.362 |
+  | after gold n=250 SFT | 0.344 | 0.344 |
+  | GRPO from the untrained start | 0.519 | 0.513 |
+  | gold n=250 → GRPO | 0.450 | 0.457 |
+
+**Scoring note.**
+- **The bug.** In the pre-written script, the rollout reader treated every rollout after the first in a step as a resume replay. It therefore kept only one rollout per step. Its first pass reported:
+  - 150 rollouts per run;
+  - 0 censored rollouts;
+  - a stop rate computed over 20 rollouts.
+- **The fix.** In `rollouts.jsonl`, only a step number that goes back now marks a replay. Every run has exactly 64 rollouts at each of its 150 steps. We then rescored.
+- **Effect.** The drifts come from `panel.jsonl` and are identical in both passes. No run diverged in either pass, and the gate result is the same.
