@@ -46,6 +46,7 @@ import pandas as pd
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
+    p.add_argument("--dataset", choices=["gsm8k", "math", "geometry3k"], default="gsm8k")
     p.add_argument("--max_train_samples", type=int, default=1000)
     p.add_argument("--max_eval_samples", type=int, default=300)
     p.add_argument(
@@ -76,7 +77,7 @@ def parse_args():
         default=["random", "adaptive"],
     )
     p.add_argument("--data_seed", type=int, default=1234)
-    p.add_argument("--output_dir", default="", help="Defaults to runs/<model name>.")
+    p.add_argument("--output_dir", default="", help="Defaults to runs/<dataset>/<model name>.")
     p.add_argument("--wandb_project", default="sft-grpo-routing")
     p.add_argument("--wandb_entity", default="")
     p.add_argument("--wandb_group", default="", help="Defaults to the model name.")
@@ -109,13 +110,12 @@ def parse_args():
     return p.parse_known_args()
 
 
-def get_n_total(max_train_samples: int) -> int:
+def get_n_total(max_train_samples: int, dataset: str) -> int:
     if max_train_samples > 0:
         return max_train_samples
-    # Full GSM8K requested; ask the dataset instead of hard-coding its size.
-    from datasets import load_dataset
+    from route_sft_grpo import load_problems
 
-    return len(load_dataset("openai/gsm8k", "main", split="train"))
+    return len(load_problems(dataset, "train"))
 
 
 def counts_from_fractions(fractions: Iterable[float], n_total: int) -> List[int]:
@@ -194,7 +194,7 @@ def aggregate_curve(raw_for_plot: pd.DataFrame) -> pd.DataFrame:
     return grouped
 
 
-def make_local_plot(summary: pd.DataFrame, n_total: int, out_png: Path, out_pdf: Path):
+def make_local_plot(summary: pd.DataFrame, n_total: int, dataset: str, out_png: Path, out_pdf: Path):
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(8.2, 5.0))
@@ -215,7 +215,7 @@ def make_local_plot(summary: pd.DataFrame, n_total: int, out_png: Path, out_pdf:
         ax.axhline(base, color="gray", linestyle="--", label="untrained")
 
     ax.set_xlabel("Number of SFT examples")
-    ax.set_ylabel("Final GSM8K exact-match accuracy")
+    ax.set_ylabel(f"Final {dataset.upper()} exact-match accuracy")
     ax.set_title("SFT / GRPO allocation curve")
     ax.grid(True, alpha=0.25)
     ax.legend(title="Allocation rule")
@@ -243,11 +243,12 @@ def log_summary_to_wandb(args, group_name: str, raw: pd.DataFrame, summary: pd.D
         project=args.wandb_project,
         entity=args.wandb_entity or None,
         group=group_name,
-        name=f"curve-summary-{group_name}",
+        name=f"{args.dataset}-curve-summary-{group_name}",
         job_type="curve-summary",
         mode=args.wandb_mode,
         config={
             "model": args.model,
+            "dataset": args.dataset,
             "n_total": int(raw["n_total"].iloc[0]),
             "seeds": args.seeds,
             "fractions": args.fractions if args.counts is None else None,
@@ -295,7 +296,7 @@ def log_summary_to_wandb(args, group_name: str, raw: pd.DataFrame, summary: pd.D
 
 def main():
     args, passthrough = parse_args()
-    n_total = get_n_total(args.max_train_samples)
+    n_total = get_n_total(args.max_train_samples, args.dataset)
     if args.counts is not None:
         bad = [c for c in args.counts if c < 0 or c > n_total]
         if bad:
@@ -311,7 +312,7 @@ def main():
     )
 
     model_name = args.model.split("/")[-1]
-    out_root = Path(args.output_dir or f"runs/{model_name}")
+    out_root = Path(args.output_dir or f"runs/{args.dataset}/{model_name}")
     out_root.mkdir(parents=True, exist_ok=True)
     script = Path(__file__).with_name("route_sft_grpo.py")
 
@@ -319,6 +320,7 @@ def main():
 
     plan = {
         "model": args.model,
+        "dataset": args.dataset,
         "n_total": n_total,
         "counts": counts,
         "fractions_requested": args.fractions if args.counts is None else None,
@@ -345,6 +347,7 @@ def main():
             sys.executable,
             str(script),
             "--model", args.model,
+            "--dataset", args.dataset,
             "--max_train_samples", str(args.max_train_samples),
             "--max_eval_samples", str(args.max_eval_samples),
             "--seed", str(seed),
@@ -390,7 +393,7 @@ def main():
 
     png = out_root / "allocation_curve.png"
     pdf = out_root / "allocation_curve.pdf"
-    make_local_plot(summary, n_total, png, pdf)
+    make_local_plot(summary, n_total, args.dataset, png, pdf)
 
     log_summary_to_wandb(args, group_name, raw_for_plot, summary, png)
 

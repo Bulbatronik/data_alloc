@@ -16,5 +16,6 @@ module load miniforge/25.11.0-0
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate /orcd/scratch/orcd/006/usemil/envs/data_alloc
 
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 nvidia-smi --query-gpu=name,memory.total --format=csv
 python run_curve.py "$@"

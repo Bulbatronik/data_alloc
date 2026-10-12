@@ -4,3 +4,8 @@ runs/
 wandb/
 
 *.pyc
+paper/*.aux
+paper/*.log
+paper/*.blg
+paper/*.bbl
+paper/*.out

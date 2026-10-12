@@ -10,7 +10,7 @@ source "$(conda info --base)/etc/profile.d/conda.sh"
 conda create -y -p "$ENV" python=3.11
 conda activate "$ENV"
 
-pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu128
+pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu128  # torchvision: VLM processors
 pip install --no-cache-dir -r requirements.txt
 
 python -c "import torch, transformers, trl, peft, wandb; print('torch', torch.__version__, '| transformers', transformers.__version__, '| trl', trl.__version__, '| peft', peft.__version__, '| wandb', wandb.__version__)"

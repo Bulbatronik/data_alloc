@@ -7,23 +7,28 @@
 # Settings can be overridden from the environment, e.g. a quick smoke test:
 #   N_TRAIN=32 N_EVAL=32 SEEDS=42 EXTRA="--output_dir runs/smoke --wandb_group smoke" \
 #     PARTITION=mit_normal_gpu TIME=00:45:00 ./run_all.sh
+# MATH (numeric levels 1-3) needs longer generations:
+#   DATASET=math EXTRA="--eval_max_new_tokens 1024 --grpo_max_completion_length 1024" ./run_all.sh
 set -eo pipefail
 
 MODEL="${MODEL:-Qwen/Qwen2.5-0.5B}"
+DATASET="${DATASET:-gsm8k}"    # gsm8k | math
 N_TRAIN="${N_TRAIN:-1000}"
-N_EVAL="${N_EVAL:--1}"          # -1 = full GSM8K test set (1319)
+N_EVAL="${N_EVAL:--1}"          # -1 = full test set
 SEEDS="${SEEDS:-42 43 44}"
 COUNTS="${COUNTS:-250 500 750}"   # SFT counts; 0 and N are always added
+STRATEGIES="${STRATEGIES:-random adaptive}"
 PARTITION="${PARTITION:-mit_preemptable}"
 TIME="${TIME:-48:00:00}"
 EXTRA="${EXTRA:-}"
 
 ARGS=(
   --model "$MODEL"
+  --dataset "$DATASET"
   --max_train_samples "$N_TRAIN"
   --max_eval_samples "$N_EVAL"
   --counts $COUNTS
-  --strategies random adaptive
+  --strategies $STRATEGIES
   --bf16
   $EXTRA
 )
@@ -38,6 +43,6 @@ fi
 
 mkdir -p logs
 for SEED in $SEEDS; do
-  sbatch -p "$PARTITION" -t "$TIME" --job-name="alloc-${MODEL##*/}-s$SEED" \
+  sbatch -p "$PARTITION" -t "$TIME" --job-name="alloc-$DATASET-${MODEL##*/}-s$SEED" \
     job.sbatch "${ARGS[@]}" --seeds "$SEED" --no_aggregate
 done
