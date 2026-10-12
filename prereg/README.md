@@ -18,6 +18,7 @@ are never edited after registration.
 - `10_geometry3k_measurements.md` — Geometry3K per-item measurements (image / text / diagram-description; 32B teacher) before any training.
 - `11_geometry3k_pilot.md` — Geometry3K pilot: class × trace-grounding SFT ablation, and allocation by failure class at matched RL steps.
 - `12_r1_plateau.md` — does the R1-distill cliff vanish with more RL (375 steps, marked reward)?
+- `13_censored_transport_gate.md` — measurement hygiene, and the gate for censored off-sample transport (does GRPO move a never-reinforced behaviour, with a start-dependent sign?).
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
