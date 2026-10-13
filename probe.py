@@ -50,7 +50,7 @@ import route_sft_grpo as R
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True)
-    p.add_argument("--dataset", choices=["gsm8k", "math", "svamp", "gsm_plus", "geometry3k"], default="gsm8k")
+    p.add_argument("--dataset", choices=["gsm8k", "math", "svamp", "gsm_plus", "gsm_symbolic", "geometry3k"], default="gsm8k")
     p.add_argument("--input", choices=["image", "text", "caption"], default="image",
                    help="Image datasets: the question with its image, the question alone, or with the image replaced by "
                         "its Inter-GPS diagram literals as text (caption, needs --intergps_dir).")

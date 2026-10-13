@@ -335,6 +335,13 @@ def load_problems(dataset: str, split: str) -> Dataset:
             lambda ex: {"question": ex["question"], "gold_trace": ex["solution"], "gold_answer": numeric_answer(str(ex["answer"]))},
             remove_columns=ds.column_names,
         )
+    if dataset == "gsm_symbolic":
+        # 100 GSM8K-test templates x 50 instances with new names and numbers (released Oct 2024, after Llama-3.2).
+        ds = load_dataset("apple/GSM-Symbolic", "main", split="test")
+        return ds.map(
+            lambda ex: {"question": ex["question"], "gold_trace": ex["answer"], "gold_answer": extract_gsm8k_gold(ex["answer"])},
+            remove_columns=ds.column_names,
+        )
 
     # MATH levels 1-3 with a plain numeric answer, so the same numeric grader applies.
     # Gold traces get the '#### <answer>' line our prompt asks for, as GSM8K traces have.
@@ -1352,7 +1359,7 @@ def run(args):
             model = train_grpo(model, tokenizer, grpo_ds, args, exp_dir / "grpo",
                                panel_prompts=eval_ds["prompt"][: args.panel_n])
 
-        print("[eval] greedy exact-match")
+        print(f"[eval] pass@1, T={args.eval_temperature}, k={args.eval_k}" if args.eval_temperature > 0 else "[eval] greedy")
         metrics = evaluate(model, tokenizer, eval_ds, args)
         predictions = metrics.pop("predictions")
         pd.DataFrame(predictions).to_json(

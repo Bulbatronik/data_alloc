@@ -19,6 +19,7 @@ are never edited after registration.
 - `11_geometry3k_pilot.md` — Geometry3K pilot: class × trace-grounding SFT ablation, and allocation by failure class at matched RL steps.
 - `12_r1_plateau.md` — does the R1-distill cliff vanish with more RL (375 steps, marked reward)?
 - `13_censored_transport_gate.md` — measurement hygiene, and the gate for censored off-sample transport (does GRPO move a never-reinforced behaviour, with a start-dependent sign?).
+- `14_colm_evidence.md` — the paper's contrasts re-measured with sampled pass@1, on post-cutoff GSM-Symbolic, on MATH at 375 steps, and a Geometry3K text-only contamination check.
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
