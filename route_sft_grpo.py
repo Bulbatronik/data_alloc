@@ -27,7 +27,7 @@ import sympy
 import torch
 import torch.nn.functional as F
 from datasets import Dataset, concatenate_datasets, load_dataset
-from peft import LoraConfig, PeftModel
+from peft import LoraConfig, PeftModel, get_peft_model
 from sympy.parsing.sympy_parser import implicit_multiplication_application, parse_expr, standard_transformations
 from transformers import (
     AutoModelForCausalLM,
@@ -43,6 +43,8 @@ from transformers.trainer_utils import get_last_checkpoint
 from trl import GRPOConfig, GRPOTrainer, SFTConfig, SFTTrainer
 from trl.data_utils import prepare_multimodal_messages
 
+import countdown
+from math_grader import math_equal
 from modes import MODES, classify
 
 
@@ -75,6 +77,9 @@ PROMPT_STYLES = {
     "boxed_user": (None, "{question}\nPlease reason step by step, and put your final answer within \\boxed{}."),
     "plain": (None, "{question}"),
     "llama_math": (None, LLAMA_MATH_PROMPT),
+    # --dataset countdown*: the question states the task; this asks for reasoning, then the equation in TinyZero's tag.
+    "countdown": (None, "{question}\nThink step by step, then give your final equation in <answer> </answer> tags, "
+                        "for example <answer> (1 + 2) / 3 </answer>."),
 }
 
 
@@ -241,11 +246,33 @@ def expressions_match(predicted: Optional[str], gold: str) -> bool:
         return False
 
 
+def extract_math_answer(text: str, marked: bool = False) -> Optional[str]:
+    """math35: the last \\boxed{...}; lenient falls back to a '####' / '(final) answer is' line (its first $...$ span,
+    else up to the sentence end), then the last number. marked requires \\boxed{}."""
+    boxed = last_boxed(text)
+    if boxed is not None or marked:
+        return boxed
+    lines = re.findall(r"####\s*(.+)", text) or re.findall(r"answer\s*(?:is|:)\s*:?\s*(.+)", text, flags=re.IGNORECASE)
+    if lines:
+        span = re.search(r"\$([^$]+)\$", lines[-1])
+        return span.group(1).strip() if span else re.split(r"\.(?:\s|$)", lines[-1])[0].strip()
+    nums = re.findall(_NUM, text)
+    return nums[-1] if nums else None
+
+
 def extract_answer(text: str, marked: bool = False, dataset: str = "gsm8k") -> Optional[str]:
+    if dataset.startswith("countdown"):
+        return countdown.extract_equation(text, marked)
+    if dataset.startswith("math35"):
+        return extract_math_answer(text, marked)
     return extract_expression(text, marked) if dataset == "geometry3k" else extract_final_answer(text, marked)
 
 
 def answer_is_correct(completion: str, gold: str, marked: bool = False, dataset: str = "gsm8k") -> bool:
+    if dataset.startswith("countdown"):  # gold = {"target": T, "nums": [...]} (countdown.gold_answer)
+        return countdown.answer_is_correct(completion, gold, marked)
+    if dataset.startswith("math35"):
+        return math_equal(extract_math_answer(completion, marked), gold)
     predicted = extract_answer(completion, marked, dataset)
     if dataset == "geometry3k":
         return expressions_match(predicted, gold)
@@ -295,6 +322,10 @@ def render_prompt(tokenizer, question: str, system_prompt: Optional[str] = SYSTE
     return f"{system_prompt or ''}\n\nQuestion: {question}\nAnswer:\n"
 
 
+DATA_DIR = Path(__file__).resolve().parent / "data"
+NEW_DATASETS = ["countdown", "countdown3", "countdown4", "math35", "math35_rest", "math35_all"]
+
+
 def load_problems(dataset: str, split: str) -> Dataset:
     """Rows with `question`, `gold_trace` (SFT target) and `gold_answer`, plus `images` for image datasets."""
     if dataset == "geometry3k":
@@ -341,6 +372,39 @@ def load_problems(dataset: str, split: str) -> Dataset:
         return ds.map(
             lambda ex: {"question": ex["question"], "gold_trace": ex["answer"], "gold_answer": extract_gsm8k_gold(ex["answer"])},
             remove_columns=ds.column_names,
+        )
+
+    if dataset.startswith("countdown"):
+        # Procedural and contamination-free: `python countdown.py` writes data/countdown/{train,test}.jsonl (train =
+        # the SFT and RL pools, column `pool`). Gold trace = the solver's step-by-step solution ending in
+        # <answer>expr</answer>. countdown3 / countdown4 keep only the 3- / 4-number items.
+        path = DATA_DIR / "countdown" / f"{'test' if split == 'test' else 'train'}.jsonl"
+        ds = Dataset.from_list([json.loads(line) for line in open(path)])
+        if dataset != "countdown":
+            ds = ds.filter(lambda ex: ex["n_numbers"] == int(dataset[len("countdown"):]))
+        return ds.map(
+            lambda ex: {"question": countdown.question(ex["nums"], ex["target"]), "gold_trace": ex["trace"],
+                        "gold_answer": countdown.gold_answer(ex["nums"], ex["target"])},
+            remove_columns=[c for c in ds.column_names if c not in ("id", "pool", "n_numbers")],
+        )
+
+    if dataset.startswith("math35"):
+        # MATH levels 3-5 with every answer type, graded by math_grader.math_equal on the last \boxed{}. Test split:
+        # math35 = the MATH-500 items at L3-5 (data/math500/test.jsonl, HuggingFaceH4/MATH-500), math35_rest = the
+        # other L3-5 test items, math35_all = both (column `subset`). Gold traces get the '#### <answer>' line too.
+        ds = load_dataset("DigitalLearningGmbH/MATH-lighteval", "default", split=split)
+        ds = ds.filter(lambda ex: ex["level"] in {"Level 3", "Level 4", "Level 5"})
+        ds = ds.map(lambda ex: {"gold_answer": last_boxed(ex["solution"])})
+        ds = ds.filter(lambda ex: ex["gold_answer"] is not None)
+        if split == "test":
+            math500 = {json.loads(line)["problem"].strip() for line in open(DATA_DIR / "math500" / "test.jsonl")}
+            ds = ds.map(lambda ex: {"subset": "math500" if ex["problem"].strip() in math500 else "rest"})
+            keep = {"math35": {"math500"}, "math35_rest": {"rest"}, "math35_all": {"math500", "rest"}}[dataset]
+            ds = ds.filter(lambda ex: ex["subset"] in keep)
+        return ds.map(
+            lambda ex: {"question": ex["problem"], "gold_trace": f"{ex['solution']}\n#### {ex['gold_answer']}",
+                        "gold_answer": ex["gold_answer"]},
+            remove_columns=[c for c in ds.column_names if c not in ("level", "type", "subset")],
         )
 
     # MATH levels 1-3 with a plain numeric answer, so the same numeric grader applies.
@@ -801,6 +865,51 @@ def make_lora_config(args) -> Optional[LoraConfig]:
         target_modules="all-linear",
         exclude_modules=VISION_MODULES if args.dataset in IMAGE_DATASETS else None,
     )
+
+
+# --merge_sft_start: GRPO starts from base + SFT LoRA merged into the weights, with a fresh LoRA whose init is the same
+# in every arm. The GRPO adapter alone no longer rebuilds the policy, so its run writes MERGED_START next to it.
+MERGED_START = "merged_start.json"
+
+
+def fresh_lora(model, args):
+    """A new trainable LoRA (make_lora_config, as TRL's GRPOTrainer would add it; B = 0) with A drawn after
+    torch.manual_seed(--lora_init_seed). Built on CPU, where PEFT draws the init, so a base start and a merged SFT
+    start get identical A matrices."""
+    device = next(model.parameters()).device
+    torch.manual_seed(args.lora_init_seed)
+    return get_peft_model(model.cpu(), make_lora_config(args)).to(device)
+
+
+def merge_sft_adapter(model, adapter):
+    """The model with an SFT LoRA merged into its weights (merge_and_unload in the model's dtype, on GPU if any)."""
+    if torch.cuda.is_available():
+        model = model.cuda()
+    return PeftModel.from_pretrained(model, adapter).merge_and_unload()
+
+
+def write_merged_start(grpo_dir: Path, args, sft_adapter: Optional[Path]):
+    grpo_dir.mkdir(parents=True, exist_ok=True)
+    info = {
+        "merge_sft_start": True,
+        "base_model": args.model,
+        "sft_adapter": str(sft_adapter) if sft_adapter else None,  # None: GRPO from the untrained base
+        "sft_adapter_abs": str(Path(sft_adapter).resolve()) if sft_adapter else None,
+        "merge_dtype": "bfloat16" if args.bf16 else ("float16" if args.fp16 else "float32"),
+        "merge_device": "cuda" if torch.cuda.is_available() else "cpu",
+        "lora_init_seed": args.lora_init_seed,
+        "lora": {"r": args.lora_r, "alpha": args.lora_alpha, "dropout": args.lora_dropout},
+        "rebuild": "base -> PeftModel.from_pretrained(sft_adapter).merge_and_unload() -> PeftModel.from_pretrained(grpo adapter)",
+    }
+    (grpo_dir / MERGED_START).write_text(json.dumps(info, indent=2))
+
+
+def merged_start_info(adapter) -> Optional[dict]:
+    """MERGED_START of a --merge_sft_start GRPO adapter dir (or of its parent, for grpo/checkpoint-N), else None."""
+    for d in (Path(adapter), Path(adapter).parent):
+        if (d / MERGED_START).exists():
+            return json.loads((d / MERGED_START).read_text())
+    return None
 
 
 def load_tokenizer(args):
@@ -1344,6 +1453,18 @@ def run(args):
                 wandb_run.log({"stage/sft_started": 1})
             model = train_sft(model, tokenizer, sft_ds, args, exp_dir / "sft")
 
+        if args.merge_sft_start and len(grpo_ds) and not args.skip_grpo:
+            sft_adapter = None
+            if len(sft_ds):
+                if args.reuse_from and args.reuse_stage != "sft":
+                    raise ValueError("--merge_sft_start merges an SFT adapter: use it with --reuse_stage sft")
+                sft_adapter = Path(args.reuse_from) / method / args.reuse_stage if args.reuse_from else exp_dir / "sft"
+                print(f"[merge] SFT LoRA {sft_adapter} merged into the base weights")
+                model = model.merge_and_unload()
+            print(f"[merge] fresh GRPO LoRA, init seed {args.lora_init_seed}")
+            model = fresh_lora(model, args)
+            write_merged_start(exp_dir / "grpo", args, sft_adapter)
+
         if len(sft_ds) and len(grpo_ds) and not args.skip_grpo:
             print("[eval] after SFT, before GRPO")
             sft_metrics = evaluate(model, tokenizer, eval_ds, args)
@@ -1411,8 +1532,10 @@ def build_parser():
     p = argparse.ArgumentParser()
 
     p.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
-    p.add_argument("--dataset", choices=["gsm8k", "math", "geometry3k"], default="gsm8k",
-                   help="geometry3k: diagram questions for a VLM (e.g. Qwen/Qwen2.5-VL-3B-Instruct), use --prompt_style boxed.")
+    p.add_argument("--dataset", choices=["gsm8k", "math", "geometry3k"] + NEW_DATASETS, default="gsm8k",
+                   help="geometry3k: diagram questions for a VLM (e.g. Qwen/Qwen2.5-VL-3B-Instruct), use --prompt_style boxed. "
+                        "countdown[3|4]: data/countdown (countdown.py), use --prompt_style countdown. "
+                        "math35[_rest|_all]: MATH L3-5, all answer types, test = MATH-500 L3-5 [other L3-5 | both].")
     p.add_argument("--prompt_style", choices=list(PROMPT_STYLES), default="train", help="Prompt used for training and eval.")
     p.add_argument("--output_dir", default="./sft_grpo_routing_runs")
     p.add_argument("--seed", type=int, default=42, help="Training / partition seed.")
@@ -1425,6 +1548,12 @@ def build_parser():
         help="Seed dir of an earlier run: start from its <method>/<reuse_stage> adapter instead of training SFT.",
     )
     p.add_argument("--skip_grpo", action="store_true", help="Stop after SFT (SFT-only dose/LR scans).")
+    p.add_argument("--merge_sft_start", action="store_true",
+                   help="GRPO from base + SFT LoRA merged into the weights (reused or trained here), with a fresh LoRA "
+                        "seeded by --lora_init_seed in every arm, full_grpo included; writes grpo/merged_start.json "
+                        "(probe.py rebuilds such models from it).")
+    p.add_argument("--lora_init_seed", type=int, default=None,
+                   help="torch seed of the fresh GRPO LoRA's init under --merge_sft_start (default: --seed).")
     p.add_argument("--grpo_on_sft_prompts", action="store_true",
                    help="Run GRPO on the SFT problems rather than the disjoint remainder (e.g. full_sft then GRPO on all).")
     p.add_argument(
@@ -1494,7 +1623,8 @@ def build_parser():
     )
     p.add_argument("--reward", choices=["lenient", "marked"], default="lenient",
                    help="lenient: the last number counts as the answer; marked: only an explicitly marked answer "
-                        "(#### N, \\boxed{N}, 'answer is N'; geometry3k: \\boxed{} or ####). "
+                        "(#### N, \\boxed{N}, 'answer is N'; geometry3k: \\boxed{} or ####; math35: \\boxed{}; "
+                        "countdown: <answer>...</answer>). "
                         "Evaluation is graded the same way and also reports the other.")
     p.add_argument("--reward_needs_stop", action="store_true",
                    help="Reward an answer only if the completion ended before the length limit (no reward for "
@@ -1569,4 +1699,8 @@ if __name__ == "__main__":
 
     if args.grpo_seed is None:
         args.grpo_seed = args.seed
+    if args.lora_init_seed is None:
+        args.lora_init_seed = args.seed
+    if args.merge_sft_start and args.no_lora:
+        raise ValueError("--merge_sft_start starts GRPO with a fresh LoRA; it cannot be combined with --no_lora.")
     run(args)

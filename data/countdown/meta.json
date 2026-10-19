@@ -1,0 +1,26 @@
+{
+  "seeds": {
+    "test": 3000000,
+    "sft": 1000000,
+    "rl": 2000000
+  },
+  "num_range": [
+    1,
+    100
+  ],
+  "n_numbers": [
+    3,
+    4
+  ],
+  "target_range": [
+    1,
+    999
+  ],
+  "counts": {
+    "test": 2000,
+    "sft": 4000,
+    "rl": 4000
+  },
+  "convention": "each number exactly once (TinyZero verifier)",
+  "generator": "numbers uniform in num_range, target uniform among reachable integers in target_range"
+}

@@ -50,7 +50,8 @@ import route_sft_grpo as R
 def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--model", required=True)
-    p.add_argument("--dataset", choices=["gsm8k", "math", "svamp", "gsm_plus", "gsm_symbolic", "geometry3k"], default="gsm8k")
+    p.add_argument("--dataset", choices=["gsm8k", "math", "svamp", "gsm_plus", "gsm_symbolic", "geometry3k"] + R.NEW_DATASETS,
+                   default="gsm8k")
     p.add_argument("--input", choices=["image", "text", "caption"], default="image",
                    help="Image datasets: the question with its image, the question alone, or with the image replaced by "
                         "its Inter-GPS diagram literals as text (caption, needs --intergps_dir).")
@@ -89,6 +90,10 @@ def load_model(args, tokenizer, adapter: str | None):
     model = R.load_fresh_model(
         SimpleNamespace(model=args.model, dataset=args.dataset, bf16=True, fp16=False, gradient_checkpointing=False)
     )
+    merged = R.merged_start_info(adapter) if adapter else None
+    if merged and merged["sft_adapter"]:  # a --merge_sft_start GRPO adapter: base + merged SFT LoRA + this adapter
+        sft = merged["sft_adapter"] if Path(merged["sft_adapter"]).exists() else merged["sft_adapter_abs"]
+        model = R.merge_sft_adapter(model, sft)
     if adapter:
         model = PeftModel.from_pretrained(model, adapter)
     return model.cuda().eval()
