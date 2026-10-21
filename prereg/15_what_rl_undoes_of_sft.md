@@ -379,3 +379,44 @@ Statistical problems, and how the scorer handles them:
 8. **O2's power is low.** The seed side has 300 GSM8K items, and Δ ≥ 0.10 with a CI excluding 0 needs an SE ≈ 0.05. In the synthetic dry run (§4), O2 with Δb = 0.15 holds with P = 0.33 in both designs (CI width 0.33–0.45); under the null it never fires. Either accept O2 as a low-power secondary, or require Δ ≥ 0.25.
 9. **The diagnosis rule** "marked vs lenient agreement < 98% on correct-and-stopped answers" needs a direction. The scorer uses P(marked-correct | lenient-correct and stopped).
 10. **O3** is a point-estimate ordering with no CI: label it descriptive.
+
+## Outcome, Parts 0, A and B (scored 2026-10-21 with the frozen scorer)
+**Jobs and outputs.** 26491530, 26491531 and 26491532 (`runs/theory/scratch/score_prereg15_part{0,A,B}_out.txt`). The working copy was verified byte-identical to `prereg/scripts/p15/`.
+
+**Part 0 — MATH L1–3, post hoc label** (lenient, probability scale, step 375).
+- **P0-1 — contraction replicates on MATH.** b = 0.162 [0.072, 0.245] against the one-index null median 0.975.
+- **Decomposition.** β_S ≈ −0.8 (undoing at the SFT start) and β_U ≈ 0: the contraction is almost entirely the gold-SFT start reverting.
+- **P0-2 not held.** Base-success excess +0.198 [−0.265, +0.641].
+- **Pool equalisation (reported).** The training-reward gap goes from −0.181 to −0.053 (ratio 0.29, ≤ 0.3), so the starts equalise on MATH at 375 steps.
+
+**Part A — GSM8K, `08` S′ arms, step 375** (n = 250 and 500 pooled per source).
+
+| Test | Lenient (primary) | Marked |
+|---|---|---|
+| A1 gold | b = 0.081 [−0.025, 0.185] vs null 0.967: **contraction beyond the null** | b = 0.094 vs null 0.930: holds |
+| A1 teacher | b = 0.334 [0.155, 0.543] vs null 0.892: **contraction beyond the null** | b = 0.125 vs null 0.813: holds |
+| A2 help vs damage | b₊(teacher) = 0.321 [0.119, 0.696]; b₋(gold) = 0.056 [−0.071, 0.164]; d = +0.265 [+0.042, +0.648] → **intermediate** (asymmetric, but b₊ < 0.50) | d = +0.016 → **H-sym** at registered power |
+| A4 gold | M − null = +0.355 [0.215, 0.491]: **UNDOING** toward the base profile | no asymmetry detected |
+| A4 teacher | −0.386 [−0.717, −0.073]: **CONVERGENCE** toward the SFT profile | −0.460: CONVERGENCE |
+| A3 | gold +0.864 [0.058, 1.871]; teacher not resolved | — |
+
+**Decomposition** (lenient, reported). Retention at steps 75 / 225 / 375:
+- gold 0.64 / 0.27 / 0.08;
+- teacher 0.66 / 0.46 / 0.33.
+
+The two sources contract by different routes:
+- **Gold** is mainly undoing: β_S = −0.71, β_U = +0.21.
+- **Teacher** is mainly convergence: β_S = −0.10 (n.s.), β_U = +0.57. Of the helped items' loss of retention, 0.87 is the convergence part and −0.19 the undoing part.
+
+**Part B — GSM-Symbolic** (exploratory). Arm − GRPO alone at step 375, lenient:
+- gold-250 +2.2 [+0.1, +4.3];
+- teacher-250 +2.4 [−0.1, +4.9].
+
+The marked contrasts are larger (+5.8 / +5.9), partly from format and stop-rate differences. The step-225 contrasts are distorted by a degenerate GRPO-alone run.
+
+**Reading.**
+- At 375 steps, RL removes most of SFT's per-item footprint on GSM8K and MATH, whether SFT helped (teacher) or hurt (gold). Damage goes more completely under lenient grading.
+- The routes are opposite:
+  - **harmful** gold effects are *undone* by the SFT start (toward the base profile);
+  - **helpful** teacher effects are *matched* by RL alone (convergence toward the SFT profile).
+- Parts X (protocol control) and 1 (first gradient) are pending.
