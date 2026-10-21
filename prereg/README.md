@@ -20,6 +20,7 @@ are never edited after registration.
 - `12_r1_plateau.md` — does the R1-distill cliff vanish with more RL (375 steps, marked reward)?
 - `13_censored_transport_gate.md` — measurement hygiene, and the gate for censored off-sample transport (does GRPO move a never-reinforced behaviour, with a start-dependent sign?).
 - `14_colm_evidence.md` — the paper's contrasts re-measured with sampled pass@1, on post-cutoff GSM-Symbolic, on MATH at 375 steps, and a Geometry3K text-only contamination check.
+- `15_what_rl_undoes_of_sft.md` — per-item reversion of SFT effects by GRPO: MATH replication (post hoc label), help vs damage and undoing vs convergence on the `08` S′ arms, a prospective protocol control (continuing adapter vs merged SFT + fresh LoRA), and a first-gradient mechanism gate (scorer frozen in `scripts/p15/`).
 - `16_ood_retention.md` — does RL erase SFT's per-item footprint only near its training distribution? Retention on GSM-Plus, SVAMP and MATH vs GSM8K test for the `08` S′ adapters (scorer frozen in `scripts/p16/`).
 
 Definitions used throughout:
