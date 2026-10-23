@@ -442,3 +442,45 @@ The marked contrasts are larger (+5.8 / +5.9), partly from format and stop-rate 
 - The protocol does not drive the contraction.
 - At 150 steps, retention is 0.65 (gold) and 0.74–0.77 (teacher); the teacher CI reaches 1.1. Contraction deepens with steps (Part A: 375 steps).
 - Under marked grading, RL alone learning the answer format accounts for part of the teacher-side convergence.
+
+## Outcome, Part 1 (scored 2026-10-23 with the frozen scorer; `runs/theory/scratch/score_prereg15_part1_i42_out.txt`)
+**Runs.** Jobs 26685936–26685943 (`firstgrad.py` via `S2_part1.sbatch`), all completed. Starts are the Part X merged-fresh gold starts (seeds 42–44) and the untrained start, each with that seed's fresh-LoRA initialisation. There are 600 items, and K = 16 samples per set at T 0.8, top-p 0.95.
+
+**Implementation step (format only; mapping fixed before scoring).** `firstgrad.py` writes per-start files. The frozen scorer reads `A/B/C.jsonl` (P1_DOC). The converter `runs/reviews/round4/scratch/lead_p1_convert.py` renames:
+- starts: `gold_s{S}_merged` → `gold_mf_s{S}`;
+- directions: `v0_lora` → `v0` (the registered first step G·AᵀA), `rand_lora` → `rand_1` (same subspace, matched on RMS φ; matched 1.000), `v25`, `v150`; plus `v0_raw` → `v0raw`, reported only.
+
+It also builds set C (post_gold_mf_s{S}, post_untrained_s{S}) and the registered covariates: per-item length, entropy and silhouette from set-A log-probs.
+
+**The untrained start.** Its first-step directions were computed once per init seed. The scorer has a single untrained start, so seed 42 is primary. Seeds 43 and 44 were scored as sensitivity checks and give the same verdicts (`..._part1_i43_out.txt`, `..._part1_i44_out.txt`).
+
+**c_φ = 0.37.** This is φ along one direction (≈ 55 s per 1k sequences) over generation (≈ 140–165 s per 1k) on L40S (`runs/firstgrad/part1/timings.jsonl`).
+
+**Verdicts.**
+
+| Gate | Lenient | Marked | Held? |
+|---|---|---|---|
+| K1′ | gold-mf starts passing 0 of 3 | 1 of 3 | **No → the mechanism line stops (registered rule)** |
+| K2′ | pooled partial +0.049 [−0.054, +0.148] vs random +0.038 | +0.068 vs +0.046 | **No → no item-level forecasting claim** |
+| K3 | corr(φ_v0, φ_v150) = 0.883 untrained; ≥ 0.3 at 2 of 3 gold starts (0.483, 0.710, 0.175) | same | Yes |
+
+**K1′ details** (lenient; partial Spearman with D_SFT given p_S; seeds 42 / 43 / 44):
+
+| Direction | s42 | s43 | s44 |
+|---|---|---|---|
+| v0 | −0.072 | −0.092 | −0.099 |
+| random (same subspace) | +0.034 | −0.082 | −0.060 |
+| placebo v0 at θ₀ | +0.046 | +0.047 | +0.042 |
+
+v0 beats the placebo by > 0.05 everywhere, but beats the matched random direction by ≥ 0.05 only at s42, where v0 itself misses the −0.08 bar.
+
+**Reported, not predicted.**
+- Realised RL directions anti-align more strongly than v0. v25: −0.173 / −0.144 / −0.115. v150: −0.210 / −0.201 / −0.158.
+- Oracle partial (realised change): −0.299 / −0.294 / −0.236; v0 captures 0.24–0.42 of it.
+- The untrained start's v0 forecasts RL alone's own per-item change: partial +0.12 / +0.10 / +0.11 lenient, +0.33 to +0.34 marked, every CI above 0.
+- Crossover (exact Prop. 5): the score-function estimate is the more precise one on 99–100% of items at the gold starts, and on 10% at the untrained start.
+
+**Reading.**
+- The step-0 policy gradient at the SFT start points toward undoing SFT's per-item effects only weakly, and not more than a random direction in the same LoRA subspace. It does not predict *which* items RL reverts.
+- The reversion signal appears in the *realised* early updates (v25), which is consistent with OSOL 2609.06469. That observation is post hoc.
+- Prereg 17's gradient-based P17-4 and P17-5a, registered as conditional on funding gradient tooling, are therefore not funded and are reported as not run.
