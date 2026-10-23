@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import gc
+import hashlib
 import json
 import math
 import os
@@ -279,7 +280,7 @@ def answer_is_correct(completion: str, gold: str, marked: bool = False, dataset:
     return normalize_number(predicted) == normalize_number(gold)
 
 
-STOP_TOKENS = ("<|im_end|>", "<|endoftext|>", "<|eot_id|>", "<|end_of_text|>")
+STOP_TOKENS = ("<|im_end|>", "<|endoftext|>", "<|eot_id|>", "<|end_of_text|>", "<end_of_turn>", "<eos>")  # + Gemma
 
 
 def text_tokenizer(tokenizer):
@@ -323,7 +324,12 @@ def render_prompt(tokenizer, question: str, system_prompt: Optional[str] = SYSTE
 
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
-NEW_DATASETS = ["countdown", "countdown3", "countdown4", "math35", "math35_rest", "math35_all"]
+NEW_DATASETS = ["countdown", "countdown3", "countdown4", "math35", "math35_rest", "math35_all", "math35d"]
+
+
+def problem_id(problem: str) -> str:
+    """Stable item id: sha1 of the stripped problem text (16 hex digits)."""
+    return hashlib.sha1(problem.strip().encode()).hexdigest()[:16]
 
 
 def load_problems(dataset: str, split: str) -> Dataset:
@@ -388,6 +394,27 @@ def load_problems(dataset: str, split: str) -> Dataset:
             remove_columns=[c for c in ds.column_names if c not in ("id", "pool", "n_numbers")],
         )
 
+    if dataset == "math35d":
+        # Fixed MATH L3-5 design (data/math35/*_ids.json, written by S3_math35_design.py): train = the SFT pool (1,500)
+        # then the disjoint RL pool (1,000), column `pool`; test = 367 MATH-500 L3-5 + 633 other L3-5 test items,
+        # column `subset`. Rows carry the stable `id` (listed_sft --sft_ids data/math35/sft_pool_ids.json = SFT pool
+        # -> GRPO on the RL pool). Gold traces are the Hendrycks solutions as they are; graded like math35.
+        lists = {name: json.loads((DATA_DIR / "math35" / f"{name}_ids.json").read_text())
+                 for name in (("test",) if split == "test" else ("sft_pool", "rl_pool"))}
+        order = {i: k for k, i in enumerate(i for ids in lists.values() for i in ids)}
+        pool = {i: name.replace("_pool", "") for name, ids in lists.items() for i in ids}
+        ds = load_dataset("DigitalLearningGmbH/MATH-lighteval", "default", split=split)
+        ds = ds.map(lambda ex: {"id": problem_id(ex["problem"])}).filter(lambda ex: ex["id"] in order)
+        ds = ds.add_column("_order", [order[i] for i in ds["id"]]).sort("_order")
+        if len(ds) != len(order):
+            raise ValueError(f"math35d {split}: {len(ds)} rows for {len(order)} ids")
+        math500 = {problem_id(json.loads(line)["problem"]) for line in open(DATA_DIR / "math500" / "test.jsonl")}
+        return ds.map(
+            lambda ex: {"question": ex["problem"], "gold_trace": ex["solution"], "gold_answer": last_boxed(ex["solution"]),
+                        "pool": pool[ex["id"]], "subset": "math500" if ex["id"] in math500 else "rest"},
+            remove_columns=[c for c in ds.column_names if c not in ("id", "level", "type")],
+        )
+
     if dataset.startswith("math35"):
         # MATH levels 3-5 with every answer type, graded by math_grader.math_equal on the last \boxed{}. Test split:
         # math35 = the MATH-500 items at L3-5 (data/math500/test.jsonl, HuggingFaceH4/MATH-500), math35_rest = the
@@ -423,10 +450,15 @@ def load_problems(dataset: str, split: str) -> Dataset:
     )
 
 
-def correct_traces(path: str) -> Dict[int, str]:
+def correct_traces(path: str, key: str = "example_id") -> Dict[int, str]:
     """First correct completion per problem in a probe.py file."""
     probes = pd.read_json(path, lines=True)
-    return probes[probes["correct"]].groupby("example_id")["completion"].first().to_dict()
+    return probes[probes["correct"]].groupby(key)["completion"].first().to_dict()
+
+
+def _trace_key(ds: Dataset, path: str) -> str:
+    """Datasets and probe files that both carry a stable `id` (countdown, math35d) are matched on it, else example_id."""
+    return "id" if "id" in ds.column_names and "id" in pd.read_json(path, lines=True, nrows=1).columns else "example_id"
 
 
 def with_sft_targets(ds: Dataset, source: str) -> Dataset:
@@ -443,12 +475,14 @@ def with_sft_targets(ds: Dataset, source: str) -> Dataset:
         return ds.map(lambda ex: {"completion": re.sub(r"<<[^<>]*>>", "", ex["completion"])})
     if source.startswith("mix:"):
         _, k, path = source.split(":", 2)
-        traces = correct_traces(path)
-        swap = set([i for i in ds["example_id"] if i in traces][: int(k)])
-        return ds.map(lambda ex: {"completion": traces[ex["example_id"]] if ex["example_id"] in swap else ex["completion"]})
-    traces = correct_traces(source)
-    ds = ds.filter(lambda ex: ex["example_id"] in traces)
-    return ds.map(lambda ex: {"completion": traces[ex["example_id"]]})
+        key = _trace_key(ds, path)
+        traces = correct_traces(path, key)
+        swap = set([i for i in ds[key] if i in traces][: int(k)])
+        return ds.map(lambda ex: {"completion": traces[ex[key]] if ex[key] in swap else ex["completion"]})
+    key = _trace_key(ds, source)
+    traces = correct_traces(source, key)
+    ds = ds.filter(lambda ex: ex[key] in traces)
+    return ds.map(lambda ex: {"completion": traces[ex[key]]})
 
 
 def render_question(tokenizer, question: str, style: str = "train"):
@@ -819,8 +853,9 @@ def method_partition(
     if method == "listed_sft":
         if sft_ids is None:
             raise ValueError("listed_sft needs --sft_ids.")
-        return (train_ds.filter(lambda ex: ex["example_id"] in sft_ids),
-                train_ds.filter(lambda ex: ex["example_id"] not in sft_ids))
+        key = "id" if sft_ids and all(isinstance(i, str) for i in sft_ids) else "example_id"  # stable ids (math35d)
+        return (train_ds.filter(lambda ex: ex[key] in sft_ids),
+                train_ds.filter(lambda ex: ex[key] not in sft_ids))
 
     if method == "full_sft":
         return train_ds, train_ds.select([])
@@ -842,6 +877,23 @@ def method_partition(
         return easy_partition_count(train_ds, router_df, n_sft=n_sft)
 
     raise ValueError(f"Unsupported method: {method}")
+
+
+def restrict_grpo_pool(train_ds: Dataset, grpo_ds: Dataset, grpo_ids: set) -> Dataset:
+    """--grpo_ids: keep only the listed items in a method's GRPO bucket (stable `id` strings, e.g. math35d, else
+    example_ids). The bucket is the complement of the method's SFT bucket, so a listed item that the method routed to
+    SFT stays out of GRPO. Every listed id must be in the training split (not cut by --max_train_samples)."""
+    key = "id" if grpo_ids and all(isinstance(i, str) for i in grpo_ids) else "example_id"
+    if key not in train_ds.column_names:
+        raise ValueError(f"--grpo_ids lists stable ids but this dataset has no `{key}` column.")
+    missing = grpo_ids - set(train_ds[key])
+    if missing:
+        raise ValueError(f"--grpo_ids: {len(missing)} of {len(grpo_ids)} ids are not in the training split "
+                         f"({len(train_ds)} rows; use --max_train_samples -1).")
+    kept = grpo_ds.filter(lambda ex: ex[key] in grpo_ids)
+    print(f"[grpo_ids] GRPO bucket {len(grpo_ds)} -> {len(kept)} listed items "
+          f"({len(grpo_ids) - len(kept)} of {len(grpo_ids)} listed are in this method's SFT bucket and stay out)")
+    return kept
 
 
 # ---------------------------------------------------------------------------
@@ -919,6 +971,10 @@ def load_tokenizer(args):
         processor.tokenizer.padding_side = "left"
         return processor
     tokenizer = AutoTokenizer.from_pretrained(args.model)
+    # Gemma's chat turns end in <end_of_turn> but its EOS is <eos>: make the end-of-turn token the EOS, as Llama-3
+    # Instruct tokenizers do with <|eot_id|>, so SFT targets end in it and TRL's GRPO masks completions at it.
+    if "<end_of_turn>" in tokenizer.get_vocab() and tokenizer.eos_token != "<end_of_turn>":
+        tokenizer.eos_token = "<end_of_turn>"
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     # Decoder-only batched generation should left-pad.
@@ -1025,9 +1081,11 @@ def make_reward(log_dir: Path, stop_ids: Sequence[int], marked: bool = False, da
 
         if log_rollouts:
             example_ids = kwargs.get("example_id") or [None] * len(completions)
+            item_ids = kwargs.get("id")  # stable item ids (countdown, math35d)
             with open(rollouts_path, "a") as f:
                 for i, c in enumerate(completions):
-                    f.write(json.dumps({"step": step, "example_id": example_ids[i], "mode": classify(c, split_native=True),
+                    f.write(json.dumps({"step": step, "example_id": example_ids[i],
+                                        **({"id": item_ids[i]} if item_ids else {}), "mode": classify(c, split_native=True),
                                         "reward": rewards[i], "correct": correct[i], "stopped": stopped[i],
                                         "censored": censored[i], "n_tokens": len(ids[i]), "completion": c}) + "\n")
         return [None if cut else r for r, cut in zip(rewards, censored)]
@@ -1068,7 +1126,8 @@ def train_grpo(model, tokenizer, ds: Dataset, args, output_dir: Path, panel_prom
     if len(ds) == 0:
         return model
 
-    grpo_ds = ds.select_columns(["prompt", "gold_answer", "example_id"] + (["images"] if "images" in ds.column_names else []))
+    grpo_ds = ds.select_columns(["prompt", "gold_answer", "example_id"] + (["id"] if "id" in ds.column_names else [])
+                                + (["images"] if "images" in ds.column_names else []))
     output_dir.mkdir(parents=True, exist_ok=True)
 
     grpo_args = GRPOConfig(
@@ -1394,6 +1453,7 @@ def run(args):
     base_accuracy = json.loads(base_path.read_text())["accuracy"] if base_path.exists() else float("nan")
 
     sft_ids = set(json.loads(Path(args.sft_ids).read_text())) if args.sft_ids else None
+    grpo_ids = set(json.loads(Path(args.grpo_ids).read_text())) if args.grpo_ids else None
     for method in methods:
         print(f"\n{'='*80}\nEXPERIMENT: {method}\n{'='*80}")
         # Reset RNG so a method does not inherit random state consumed by earlier methods.
@@ -1404,6 +1464,8 @@ def run(args):
         sft_ds, grpo_ds = method_partition(method, train_ds, router_df, args.seed, sft_ids)
         if args.grpo_on_sft_prompts:  # RL reuses the SFT problems instead of the held-out bucket
             grpo_ds = sft_ds
+        if grpo_ids is not None:  # one fixed GRPO prompt pool for every method, full_grpo included
+            grpo_ds = restrict_grpo_pool(train_ds, grpo_ds, grpo_ids)
         parsed = method_metadata(method, len(train_ds))
         strategy = str(parsed["strategy"])
         if method == "adaptive":
@@ -1430,6 +1492,7 @@ def run(args):
                     "n_grpo": len(grpo_ds),
                     "sft_example_ids": list(sft_ds["example_id"]),
                     "grpo_example_ids": list(grpo_ds["example_id"]),
+                    **({"grpo_ids": args.grpo_ids} if args.grpo_ids else {}),
                 },
                 f,
                 indent=2,
@@ -1576,6 +1639,10 @@ def build_parser():
              "geometry3k has no gold solutions ('gold' = the boxed answer alone).",
     )
     p.add_argument("--sft_ids", default=None, help="JSON list of example_ids for method listed_sft (the rest go to GRPO).")
+    p.add_argument("--grpo_ids", default=None,
+                   help="JSON list of ids (stable `id` strings, e.g. math35d, else example_ids) fixing the GRPO prompt "
+                        "pool for every method, full_grpo included: each GRPO bucket keeps only these; SFT items never "
+                        "enter it. All must be in the training split (--max_train_samples -1).")
 
     # Small defaults for a first run. Set -1 to use full splits.
     p.add_argument("--max_train_samples", type=int, default=1000)
@@ -1703,4 +1770,6 @@ if __name__ == "__main__":
         args.lora_init_seed = args.seed
     if args.merge_sft_start and args.no_lora:
         raise ValueError("--merge_sft_start starts GRPO with a fresh LoRA; it cannot be combined with --no_lora.")
+    if args.grpo_ids and args.grpo_on_sft_prompts:
+        raise ValueError("--grpo_ids fixes a GRPO pool disjoint from SFT; it cannot be combined with --grpo_on_sft_prompts.")
     run(args)

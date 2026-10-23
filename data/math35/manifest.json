@@ -1,0 +1,99 @@
+{
+ "seeds": {
+  "pools": 17001,
+  "test": 17002
+ },
+ "id": "route_sft_grpo.problem_id (sha1[:16] of the stripped problem)",
+ "source": "DigitalLearningGmbH/MATH-lighteval (train / test), Levels 3-5; MATH-500 from data/math500/test.jsonl",
+ "train_L35": 5586,
+ "test_L35": 3669,
+ "excluded": {
+  "no_boxed_gold": 2,
+  "duplicate_in_train": 0,
+  "also_in_test": 1
+ },
+ "excluded_ids": {
+  "no_boxed_gold": [
+   "c0b81e6be1d2bc3e",
+   "5f57dbb7c489bc37"
+  ],
+  "duplicate_in_train": [],
+  "also_in_test": [
+   "b8fe3575c63a3bad"
+  ]
+ },
+ "candidates": 5583,
+ "math500_L35": 367,
+ "other_test_L35": 3302,
+ "composition": {
+  "sft_pool": {
+   "n": 1500,
+   "level": {
+    "Level 3": 412,
+    "Level 4": 452,
+    "Level 5": 636
+   },
+   "subject": {
+    "Algebra": 293,
+    "Counting & Probability": 168,
+    "Geometry": 199,
+    "Intermediate Algebra": 304,
+    "Number Theory": 190,
+    "Prealgebra": 208,
+    "Precalculus": 138
+   }
+  },
+  "rl_pool": {
+   "n": 1000,
+   "level": {
+    "Level 3": 301,
+    "Level 4": 296,
+    "Level 5": 403
+   },
+   "subject": {
+    "Algebra": 218,
+    "Counting & Probability": 105,
+    "Geometry": 141,
+    "Intermediate Algebra": 184,
+    "Number Theory": 136,
+    "Prealgebra": 136,
+    "Precalculus": 80
+   }
+  },
+  "test": {
+   "n": 1000,
+   "level": {
+    "Level 3": 292,
+    "Level 4": 353,
+    "Level 5": 355
+   },
+   "subject": {
+    "Algebra": 232,
+    "Counting & Probability": 96,
+    "Geometry": 90,
+    "Intermediate Algebra": 206,
+    "Number Theory": 107,
+    "Prealgebra": 162,
+    "Precalculus": 107
+   }
+  },
+  "test_math500": {
+   "n": 367,
+   "level": {
+    "Level 3": 105,
+    "Level 4": 128,
+    "Level 5": 134
+   },
+   "subject": {
+    "Algebra": 86,
+    "Counting & Probability": 29,
+    "Geometry": 31,
+    "Intermediate Algebra": 78,
+    "Number Theory": 47,
+    "Prealgebra": 56,
+    "Precalculus": 40
+   }
+  }
+ },
+ "script": "runs/reviews/round4/scratch/S3_math35_design.py"
+}

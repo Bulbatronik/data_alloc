@@ -47,7 +47,7 @@ def parse_args():
     p = argparse.ArgumentParser()
     p.add_argument("--model", default="Qwen/Qwen2.5-0.5B-Instruct")
     p.add_argument("--dataset", choices=["gsm8k", "math", "geometry3k", "countdown", "countdown3", "countdown4",
-                                         "math35", "math35_rest", "math35_all"], default="gsm8k")
+                                         "math35", "math35_rest", "math35_all", "math35d"], default="gsm8k")
     p.add_argument("--max_train_samples", type=int, default=1000)
     p.add_argument("--max_eval_samples", type=int, default=300)
     p.add_argument(

@@ -64,6 +64,7 @@ def parse_args():
     p.add_argument("--prompt_style", choices=list(R.PROMPT_STYLES), default="train")
     p.add_argument("--n_prompts", type=int, default=-1)
     p.add_argument("--shard", default=None, help="i/k: probe only the i-th of k contiguous parts of the prompts (split long runs).")
+    p.add_argument("--ids", default=None, help="JSON list of stable item ids (datasets with an `id` column): probe only these.")
     p.add_argument("--k", type=int, default=1)
     p.add_argument("--temperature", type=float, default=0.0, help="0 = greedy.")
     p.add_argument("--top_p", type=float, default=0.95)
@@ -110,6 +111,9 @@ def select_prompts(args, tokenizer, train, test, adapter: str | None):
         ds = test
     if 0 < args.n_prompts < len(ds):
         ds = ds.select(sorted(random.Random(0).sample(range(len(ds)), args.n_prompts)))
+    if args.ids:
+        keep = set(json.loads(Path(args.ids).read_text()))
+        ds = ds.filter(lambda ex: ex["id"] in keep)
     if args.shard:
         index, count = map(int, args.shard.split("/"))
         ds = ds.shard(num_shards=count, index=index, contiguous=True)
@@ -316,7 +320,8 @@ def main():
                 "model": args.model, "dataset": args.dataset, "adapter": adapter,
                 **({"input": args.input} if args.dataset in R.IMAGE_DATASETS else {}),
                 "prompt_style": args.prompt_style, "on": args.on, "temperature": args.temperature, "force_prefix": args.force_prefix,
-                "example_id": row["example_id"], "sample": i, "gold": row["gold_answer"],
+                "example_id": row["example_id"], **({"id": row["id"]} if "id" in row else {}),
+                "sample": i, "gold": row["gold_answer"],
                 "correct": R.answer_is_correct(prefix + text, row["gold_answer"], args.reward == "marked", args.dataset),
                 "stopped": stopped, "completion": prefix + text,
             }
