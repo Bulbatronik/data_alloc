@@ -110,3 +110,28 @@ The GSM8K test set (in-distribution, ID) comes from `14` Part A (same adapters, 
 8. **O2** is registered but labelled underpowered: P ≈ 0.33 at Δb = 0.15 in the synthetic dry run.
 9. **O3** is descriptive (a point-estimate ordering).
 10. **Diagnosis rule direction:** P(marked-correct | lenient-correct and stopped) < 0.98 triggers a grader check.
+
+## Outcome (scored 2026-10-23 with the frozen p16 scorer; job 26685028, `runs/theory/scratch/score_prereg16_out.txt`)
+**Data.** All 40 adapters were sampled on all three sets. Untrained k = 8.
+- **Deviation (implementation only).** The lead had shortened `p16-math-rlg`'s time limit from 6 h to 4.5 h to help it backfill, and the job timed out. It was resubmitted with 6 h (job 26664937). `probe.py` skips adapters already written, so the outputs are complete.
+- No adapter was excluded.
+- Every (set, arm) passed the power gate.
+
+**Results** (lenient, primary paired composition, probability scale):
+
+| Prediction | Result | Held? |
+|---|---|---|
+| O1 gold | b_OOD 0.092 [0.012, 0.178] vs b_ID 0.045; Δ +0.047 [−0.050, +0.157] | **No** |
+| O1 teacher | b_OOD 0.106 [−0.008, 0.261] vs b_ID 0.283; Δ −0.177 [−0.416, +0.066] | **No** |
+| O2 | perturbed 0.145 vs seeds 0.008; Δ +0.137 [−0.083, +0.377] (registered as underpowered) | No |
+| O3 (descriptive) | ordering b_MATH ≥ b_SVAMP, b_GSM-Plus for both sources | Yes |
+| O4 | teacher OOD gap +3.08 pts minus GSM8K gap = −0.27 [−2.58, +1.93] | **No** |
+
+- **H-uniform** (CI inside ±0.10) is not established: the CIs are too wide, so the formal verdict is inconclusive.
+- **Trivial persistence ruled out.** RL alone transfers strongly to every OOD set.
+- **Marked grading** gives the same verdicts.
+
+**Reading.**
+- RL's erasure of SFT's per-item footprint is *not* confined to its training distribution. Off-distribution retention is about 0.1, no higher than in-distribution.
+- The kernel-locality corollary (Prop. 6: retention → 1 for items weakly aligned with the RL pool) is **not supported**.
+- The shared destination acts on directions common to these distributions.

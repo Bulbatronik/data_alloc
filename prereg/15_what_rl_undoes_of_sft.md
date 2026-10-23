@@ -420,3 +420,25 @@ The marked contrasts are larger (+5.8 / +5.9), partly from format and stop-rate 
   - **harmful** gold effects are *undone* by the SFT start (toward the base profile);
   - **helpful** teacher effects are *matched* by RL alone (convergence toward the SFT profile).
 - Parts X (protocol control) and 1 (first gradient) are pending.
+
+## Outcome, Part X (scored 2026-10-23 with the frozen scorer; job 26664938, `runs/theory/scratch/score_prereg15_partX_out.txt`)
+**Runs.** All 15 runs completed. The six still pending were moved from `mit_preemptable`, which was stalled, to `mit_normal_gpu`, with unchanged commands. GRPO stop rates over the last 20 steps were 0.975–0.999, so no run was excluded.
+
+**X1 (protocol null).** Lenient, step 150, b(merged-fresh vs its RL alone) − b(continuing vs E2 RL alone):
+
+| Source | merged-fresh | continuing | Δ | Result |
+|---|---|---|---|---|
+| gold | 0.647 | 0.653 | −0.006 [−0.161, +0.122] | **HOLDS** |
+| teacher | 0.743 | 0.773 | −0.031 [−0.426, +0.417] | **HOLDS** |
+
+- Marked grading: Δ = +0.041 (gold) and +0.051 (teacher); both hold.
+- **Kill rule** (b(mf) ≥ 0.85 for both sources): does not fire. The per-item contraction is not a parameterisation artefact. Part 1 may run, on the merged-fresh starts.
+
+**X2 (help vs damage, prospective, step 150).**
+- Lenient, merged-fresh (primary): b₊(teacher) 0.618 vs b₋(gold) 0.620, d = −0.002 → **H-sym, LOW-POWER**. The continuing arms (secondary) also give H-sym, low-power.
+- Marked: d = −0.462 [−0.654, −0.258] (mf) and −0.431 (cont) → intermediate. Under marked grading the teacher's helped items are erased *more* than gold's damage: b₊ 0.24 vs b₋ 0.70.
+
+**Reading.**
+- The protocol does not drive the contraction.
+- At 150 steps, retention is 0.65 (gold) and 0.74–0.77 (teacher); the teacher CI reaches 1.1. Contraction deepens with steps (Part A: 375 steps).
+- Under marked grading, RL alone learning the answer format accounts for part of the teacher-side convergence.
