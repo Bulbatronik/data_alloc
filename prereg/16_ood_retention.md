@@ -135,3 +135,17 @@ The GSM8K test set (in-distribution, ID) comes from `14` Part A (same adapters, 
 - RL's erasure of SFT's per-item footprint is *not* confined to its training distribution. Off-distribution retention is about 0.1, no higher than in-distribution.
 - The kernel-locality corollary (Prop. 6: retention → 1 for items weakly aligned with the RL pool) is **not supported**.
 - The shared destination acts on directions common to these distributions.
+
+## Correction to the Outcome above (2026-10-23, lead; found by the paper writer's traceability check)
+The verdicts are unchanged. Two statements in the Outcome were wrong, and one registered diagnosis rule was not reported.
+
+1. **"No adapter was excluded" is wrong.** The frozen scorer excluded GRPO alone, seed 43, on every set under the registered paired-composition rule (`score_prereg16_out.txt` l.5). That run is the known degenerate `08` S′ run: its GSM8K evaluation stops in under half of its samples. This is why the ID retentions in this file (gold 0.045, teacher 0.283) differ from `15` Part A's (0.081, 0.334).
+2. **"RL alone transfers strongly to every OOD set" holds only under marked grading.** Under lenient grading, RL-alone transfer on SVAMP is −2.3 points [−5.6, +1.0] (`score_prereg16_out.txt`, the `len|svamp|gold_pool|rl_alone_pts` row).
+   - By the registered trivial-persistence guard, SVAMP lenient therefore counts as "RL changes little there".
+   - Low retention on SVAMP (0.06 lenient) is still *not* persistence. The O1 verdicts are unaffected.
+3. **The diagnosis rule fired** on all three OOD sets: P(marked-correct | lenient-correct and stopped) = 0.946 (GSM-Plus), 0.942 (SVAMP), 0.954 (MATH-600), against 0.98 (`score_prereg16_out.txt` l.2033, 2039, 2042).
+   - **Hand check (lead).** 53 lenient-correct, stopped, marked-incorrect completions were drawn with `random.Random(16)`: 25 GSM-Plus, 14 SVAMP, 14 MATH. Script `runs/reviews/round4/scratch/lead_gradercheck.py`; output `lead_gradercheck_out.txt`.
+   - **GSM-Plus and SVAMP:** genuine format failures — no marker; the placeholder `#### <final numeric answer>` with no number after it; or the number placed before `####`.
+   - **MATH:** mostly the same failures, plus 2–3 *lenient* false positives. Example: id 19, `\boxed{\frac{2}{3}}` credited as 3 by the last-number grader; another is a degenerate output whose last digits match.
+   - **No marked-grader bug was found.** The gap is format adoption, with a few lenient false positives on MATH.
+   - Every verdict is the same under both graders, so no re-scoring is needed.
