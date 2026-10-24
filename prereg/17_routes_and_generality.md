@@ -223,3 +223,38 @@ Neither changes any 17 threshold, which was fixed by simulation. 17B uses `PROTO
    - `--sft_max_length 2048`, because 1,024 truncated 2.8–9.2% of SFT rows;
    - probe batch 256.
 4. **Trace coverage** on the 1,500-item SFT pool (first marked-correct): teacher 75.4%; RFT Llama 54.3%; RFT Gemma 49.7%. All arms reach n = 500.
+
+## Outcome, 17A (scored 2026-10-24 with the frozen scorer; `runs/theory/scratch/score_prereg17A_out.txt`)
+**Runs.** All 79 17A jobs completed on `mit_preemptable` as registered. The schema-only check passed (job 26780366): 15 arm × seed adapters at each of steps 75–375, 9 after-SFT adapters, the comparator checkpoints, and 5,276 rows (1,319 items × 4 samples) per adapter. Scoring job 26780602; scorer SHA-256 prefix 82743ff5 (as registered).
+
+**Exclusion (registered rule).** RFT seed 43 is excluded: its training-rollout stop rate over the last 20 steps is 0.007. Its rollouts stop on 0.99 of samples through step 250, then 0.948 (steps 275–299), 0.164 (300–324) and 0.007 (325–374), while marked correctness stays at 0.71–0.75 (`…-p17a-rft/seed_43/random_sft_250/grpo/rollouts.jsonl`). The S′ reward does not require a stop, so nothing penalised the drift. This is model behaviour under the S′ reward, not a code or data fault; its greedy test accuracy (0.586 lenient) is in line with seeds 42 and 44. All other runs stop on ≥ 0.87 of rollouts.
+
+**Arm sizes** (`results.csv`, n_sft_trained): RFT 219 / 228 / 221 prompts with a marked-correct own sample (of 250); HS 233 / 239 / 239; **T_unc 65** (only 65 pool prompts have lenient pass@8 = 0 for the untrained model, so every seed uses all 65; RL pool 935); gold-linear 250.
+
+**Verdicts (lenient primary; marked secondary).**
+
+| Prediction | Lenient | Marked |
+|---|---|---|
+| P17-1b clock | **not held**: b(gold-linear, 375) +0.195 [+0.117, +0.289]; τ-matched gold-250 +0.304, Δ −0.108 [−0.260, +0.045] (tolerance 0.10); above step-matched gold-250 by +0.147 [−0.021, +0.306] | held: Δ −0.099 [−0.234, +0.042]; +0.106 above step-matched |
+| P17-1a early probe | held: forecast +0.240, error −0.044 [−0.197, +0.080] | held: error +0.030 |
+| P17-2 RFT | **untestable**: Var_true(D_pre) 0.0028 < 0.004 (2 seeds) | held (convergence only): β_S +0.109 [−0.292, +0.448], c +1.113 [+0.715, +1.497] |
+| P17-2 HS | inconclusive: β_S −0.243 [−0.574, +0.190], c +0.783 [+0.481, +1.174] | inconclusive: β_S −0.183 [−0.301, −0.076], c +0.826 [+0.711, +0.926] |
+| P17-2 falsification (β_S ≤ −0.30, CI < −0.10) | not triggered | not triggered |
+| P17-5b T_unc retains most | **not held**: b gold-250 +0.049, teacher-250 +0.273, RFT +0.163, HS −0.119, T_unc +0.208; T_unc − teacher lower bound −0.495 | not held |
+| P17-5c RFT, HS b(375) ≤ 0.25 | held: +0.163, −0.119 | held: +0.033, −0.050 |
+| P17-5d coverage does not order arms | held: Spearman +0.40 (5 arms; low power) | held at the bar: −0.50 |
+| P17-6 bounds (RFT, HS, T_unc, gold-linear) | held, all four | held, all four |
+| P17-7 level ≤ 0.3 | **not held**: RFT +0.454 [−0.114, +1.081] (pre gap 0.146 logit); HS +0.516 [+0.245, +0.907] | held: RFT +0.098, HS +0.162 |
+| P17-4, P17-5a (gradient-based) | not run: not funded after prereg 15 Part 1 failed (K1′, K2′) | — |
+| P17-3 semigroup | reported only (registered as not identifiable): slope +0.436 [−0.108, +1.185] | +0.431 |
+
+**Reported, not predicted** (step 375; lenient / marked).
+- Route shares c = β_U/(1 − b): teacher-250 0.80 / 0.94; T_unc 1.22 / 1.00 (β_S +0.17 / −0.00); HS 0.78 / 0.83; RFT 0.52 (untestable) / 1.11; gold-250 0.23 / 0.42; gold-linear 0.21 / 0.45. Every helpful arm is convergence-dominated under both graders; gold is undoing-dominated under both.
+- Mean pre-RL gains (percentage points) are 3–7× larger under marked grading: RFT +2.4 / +10.9, HS +5.3 / +16.0, teacher-250 +2.9 / +10.6, T_unc +1.6 / +11.7. The marked effects of helpful SFT are largely answer format.
+- Post-RL gap (points): HS +2.8 / +2.7, RFT +1.7 / +1.7, teacher-250 +2.9 / +2.8, T_unc +0.6 / +0.6.
+
+**Reading.**
+- **Clock: partial.** Linear decay retains more than the step-matched constant run (+0.15 lenient, CI touching 0) and less than the τ-matched prediction (−0.11, just outside the 0.10 tolerance). The decision table's "drop the clock" row needs a step-matched gap < 0.10, which this is not. The clock claim is therefore not made; budgets are reported per step and per τ. The early-probe forecast held under both graders.
+- **Head start / RFT routes: not decided; not falsified.** Neither own-sample arm undoes beyond the falsification bar. RFT is convergence-only under marked grading but untestable under lenient grading, because own-sample SFT barely changes per-item lenient success (Var_true 0.003). HS shows a small undoing component under marked grading (β_S −0.18, CI below 0), which Prop. 11 (β_S ≥ 0) does not allow; the AR head-start proposition is not supported as stated.
+- **Reachability: not supported.** Teacher help on prompts the base model never solves (T_unc) is matched by RL alone (c ≈ 1) rather than retained. Caveat: T_unc trains on 65 traces against teacher-250's 250, so its SFT effect is small (+1.6 points) and the comparison with teacher-250 is confounded by dose. Per the decision table, the reachability question passes to 17B and prereg 16.
+- **Level: grader-dependent.** Under lenient grading HS keeps about half its mean gain (level retention 0.52 [0.25, 0.91]); under marked grading, where its pre-RL gain is mostly format, it keeps 0.16.
