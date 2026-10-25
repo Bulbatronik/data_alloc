@@ -100,3 +100,35 @@ It imports the frozen prereg-15/17 libraries unchanged (`prereg/scripts/p17/`: `
 - An empty `python3 -` heredoc was invoked once on the login node; no code ran.
 - `du -sh` was run once on the engineer's own 38 MB mock directory.
 - One raw untrained-Gemma 17B row was displayed during a schema check (see above).
+
+## Outcome (scored 2026-10-25 with the frozen scorer; `runs/theory/scratch/score_prereg18_out.txt`)
+**Run.** Job 26847185, `--part all --unblind --proto mf`; scorer fc1c659e. Cells and exclusions come from the frozen 17 code:
+- 17A: RFT seed 43 excluded;
+- 17B: Gemma gold seed 43 and teacher seeds 42 and 43 excluded, which leaves Gemma with RFT only (see the prereg-17 17B outcome, commit f3c898b).
+
+**Verdicts (lenient primary; marked secondary).**
+
+| Set | Grader | H18-1 DISC (excess over reference-group tilt null; held if > −0.10) | Agree pool excess | H18-2 AD2 |
+|---|---|---|---|---|
+| 17A_new (375) | lenient | **not held**: −0.119 [−0.480, +0.679]; sides HS−, T_unc−, gold-linear+ (RFT− untestable) | +0.625 [+0.336, +0.985] | **not held** |
+| 17A_new (375) | marked | held: −0.096 [−0.469, +0.796]; sides RFT−, T_unc−, gold-linear+ | +0.584 [+0.447, +0.784] | held |
+| 17B both_all (300) | lenient | **untestable** (no discriminating side passes the gate) | +0.882 [+0.613, +1.296] | **untestable** |
+| 17B both_all (300) | marked | held: +1.031 [+0.599, +2.572]; the only side is Llama gold's helped side | +0.677 [+0.457, +0.919] | held |
+
+**Why 17B lenient is untestable.**
+- Llama gold's helped side has 24.5 items per arm (gate: 40).
+- The helpful arms' hurt sides also fail the gate.
+- Gemma contributes only RFT, whose per-item effects are too small to test.
+- The calibration had flagged that 17B's discriminating evidence would come mainly from gold's helped side.
+
+**Decision-table reading (lenient).**
+- H18-1 fails in 17A, narrowly: −0.119 against −0.10, with a wide interval. 17B is untestable.
+- No decision row applies exactly. The applicable conclusion is that **per-item catch-up is not supported under the registered grader**: on the discriminating items of 17A, the lagging start does not catch up beyond the null, as H-arm predicts. The paper makes no per-item catch-up claim and reports routes as arm-level properties.
+
+**Marked grader.** Both tests pass. In 17B the pass rests on one side: Llama gold's helped items, which under marked grading are dominated by answer-format help that RL alone also learns. This supports a format-specific catch-up, not the per-item hypothesis.
+
+**Reported.**
+- **Agree sides:** every set shows large catch-up beyond the null (+0.58 to +0.88), as both hypotheses predict.
+- **Part A**, re-run as reference: identical to the T18 reference run.
+
+**Combined with prereg 17B's post hoc Gemma analysis.** Where teacher SFT is harmful (Gemma), its effect is undone like gold's. The route tracks whether the *arm* helped or hurt, not each item's sign: a post hoc observation, consistent with the H18-1 result in 17A.
