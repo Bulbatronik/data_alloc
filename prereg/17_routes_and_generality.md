@@ -258,3 +258,69 @@ Neither changes any 17 threshold, which was fixed by simulation. 17B uses `PROTO
 - **Head start / RFT routes: not decided; not falsified.** Neither own-sample arm undoes beyond the falsification bar. RFT is convergence-only under marked grading but untestable under lenient grading, because own-sample SFT barely changes per-item lenient success (Var_true 0.003). HS shows a small undoing component under marked grading (β_S −0.18, CI below 0), which Prop. 11 (β_S ≥ 0) does not allow; the AR head-start proposition is not supported as stated.
 - **Reachability: not supported.** Teacher help on prompts the base model never solves (T_unc) is matched by RL alone (c ≈ 1) rather than retained. Caveat: T_unc trains on 65 traces against teacher-250's 250, so its SFT effect is small (+1.6 points) and the comparison with teacher-250 is confounded by dose. Per the decision table, the reachability question passes to 17B and prereg 16.
 - **Level: grader-dependent.** Under lenient grading HS keeps about half its mean gain (level retention 0.52 [0.25, 0.91]); under marked grading, where its pre-RL gain is mostly format, it keeps 0.16.
+
+## Outcome, 17B (scored 2026-10-25 with the frozen scorer; `runs/theory/scratch/score_prereg17B_out.txt`)
+**Runs.** All 17B training and evaluation jobs completed; the schema-only check passed (`score_prereg17B_schema_out.txt`). Scoring job 26846920; scorer SHA-256 prefix 82743ff5; `--proto mf`. Implementation-only deviations (staggered submission; Gemma jobs moved to `mit_preemptable`; Gemma gold SFT micro-batch 2 × 4 after OOM): `runs/reviews/round4/scratch/p17_deviations.md`.
+
+**Exclusions (registered rule: stop rate < 0.5 over the last 20 training steps).**
+- Llama: none.
+- Gemma: gold s43, teacher s42 and teacher s43 are excluded. Gemma teacher therefore has no scorable seed and gold has one, so every Gemma B prediction is unscorable (printed as "not held").
+- Diagnosis: not a code or end-token fault.
+  - Every unstopped rollout is a truncation at the 1,024-token cap; none stops early below it.
+  - Truncation rises from 0.10–0.30 at the start of RL to 0.56–0.60 at steps 250–299, while RL alone's falls from 0.43 to 0.13–0.20.
+  - The cause is SFT damage that RL does not repair (below). Gemma RFT runs through the identical SFT, template and merge path and leaves accuracy unchanged.
+  - Source: `runs/reviews/round4/scratch/lead_p17b_gemma_diag.py` and `_out.txt`.
+
+**Verdicts (step 300).**
+
+| Family | Grader | B1 contraction (gold; teacher) | B2 routes | B3 level (teacher − gold) |
+|---|---|---|---|---|
+| Llama | lenient | **held**: b −0.103 [−0.235, +0.019] vs null 1.047; +0.018 [−0.230, +0.269] vs 0.990 | **held**: c gold 0.191, teacher 1.057, RFT 1.500; c_T − c_G +0.866 [+0.499, +1.483] | **held**: +1.310 [+0.549, +2.428] |
+| Llama | marked | held: −0.134; −0.032 | not held: c gold 0.491 (split fails; order holds) | not held: −1.009 [−2.087, −0.528] |
+| Gemma | both | unscorable (exclusions) | unscorable | unscorable |
+
+**Generality** requires B1–B3 in both families. **Not established:** the registered criteria hold in Llama under lenient grading, and Gemma is unscorable. Decision-table row: family-dependent; no general claim.
+
+**Reported, not predicted.**
+- **Llama, lenient, step 300:**
+  - teacher's mean gain +3.34 → −0.46 points (level retention 0.344 [0.099, 0.773]);
+  - gold's mean deficit −5.40 → +0.60;
+  - RFT +2.06 → −0.27;
+  - step 150: b gold 0.083, teacher 0.081; c gold 0.123, teacher 1.191.
+  - B3 holds because gold over-recovers (level retention −0.97), not because teacher keeps its level.
+- **Accuracies** (diagnostic, lenient, 1,000 MATH L3–5 test items):
+
+  | Llama | Lenient accuracy |
+  |---|---|
+  | Untrained | 0.179 |
+  | After SFT: gold | 0.123–0.128 |
+  | After SFT: RFT | 0.199–0.202 |
+  | After SFT: teacher | 0.212–0.213 |
+  | Every arm at step 300 | 0.237–0.257 |
+
+  | Gemma | Lenient accuracy |
+  |---|---|
+  | Untrained | 0.348 |
+  | After SFT: gold | 0.117–0.120 |
+  | After SFT: teacher | 0.155–0.161 |
+  | After SFT: RFT | 0.351–0.354 |
+  | Step 300: RL alone | 0.366–0.371 |
+  | Step 300: RFT | 0.363–0.379 |
+  | Step 300: gold | 0.215–0.236 |
+  | Step 300: teacher | 0.190–0.218 |
+
+- **POST HOC sensitivity, not registered** (`runs/reviews/round4/scratch/lead_p17b_noexcl.py`): the frozen scorer with the stop-rate exclusion switched off, Gemma only (`…_noexcl_out.txt`). Lenient, step 300:
+  - gold: pre gap −23.0 points; b +0.508 [+0.452, +0.563] vs null 0.978; c 0.223 [0.152, 0.290]; level retention 0.621.
+  - teacher, which is *harmful* in Gemma: pre gap −19.1 points; b +0.565 [+0.497, +0.631] vs null 0.968; c 0.307 [0.211, 0.392]; level retention 0.919.
+
+  Read: when off-policy SFT damage is large (≈ 20 points), 300 GRPO steps undo only part of it. About half the per-item profile and 60–90% of the mean deficit remain. The part that goes is undone, not matched, for teacher as well as gold.
+- **MATH-500 vs other test items:** not computed (the frozen scorer does not split them).
+
+**Reading.**
+- On MATH L3–5, in the family where SFT damage is moderate (Llama: gold −5 points, teacher +3), the GSM8K pattern replicates in full under the registered grader:
+  - per-item contraction far beyond the null;
+  - harmful gold SFT undone;
+  - helpful teacher and RFT SFT matched by RL alone.
+- Unlike GSM8K, teacher's mean gain is not kept.
+- In Gemma the registered test could not run, because off-policy SFT (gold and teacher) cut accuracy by 19–23 points and RL did not recover. That is a regime boundary (decision-table row "Damage survives RL on MATH L3–5 at 300 steps").
+- Post hoc, the route there follows the arm's harm (teacher is undone in Gemma, matched in Llama), not the trace source.
