@@ -23,6 +23,7 @@ are never edited after registration.
 - `15_what_rl_undoes_of_sft.md` — per-item reversion of SFT effects by GRPO: MATH replication (post hoc label), help vs damage and undoing vs convergence on the `08` S′ arms, a prospective protocol control (continuing adapter vs merged SFT + fresh LoRA), and a first-gradient mechanism gate (scorer frozen in `scripts/p15/`).
 - `16_ood_retention.md` — does RL erase SFT's per-item footprint only near its training distribution? Retention on GSM-Plus, SVAMP and MATH vs GSM8K test for the `08` S′ adapters (scorer frozen in `scripts/p16/`).
 - `17_routes_and_generality.md` — routes and clock of per-item reversion: new GSM8K arms (RFT, head start, teacher on base-unsolved, gold with linear lr) and a MATH L3–5 generality test in Llama-3.2-1B-I and Gemma-3-1B-it (merged-fresh protocol; scorer frozen in `scripts/p17/`).
+- `18_per_item_catchup.md` — does the lagging start catch up per item, or does the undoing/convergence route follow the SFT source? Sign-split route test on the 17A new arms and 17B (scorer frozen in `scripts/p18/`).
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
