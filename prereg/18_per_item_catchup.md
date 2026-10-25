@@ -129,6 +129,6 @@ It imports the frozen prereg-15/17 libraries unchanged (`prereg/scripts/p17/`: `
 
 **Reported.**
 - **Agree sides:** every set shows large catch-up beyond the null (+0.58 to +0.88), as both hypotheses predict.
-- **Part A**, re-run as reference: identical to the T18 reference run.
+- **Part A** was not re-run in this scoring job (`--part all` excludes it). Its reference run before registration (job 26836394; `T18_tooling_report.md` §3) reproduced the published prereg-15 values exactly.
 
 **Combined with prereg 17B's post hoc Gemma analysis.** Where teacher SFT is harmful (Gemma), its effect is undone like gold's. The route tracks whether the *arm* helped or hurt, not each item's sign: a post hoc observation, consistent with the H18-1 result in 17A.
