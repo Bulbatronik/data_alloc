@@ -24,6 +24,8 @@ are never edited after registration.
 - `16_ood_retention.md` — does RL erase SFT's per-item footprint only near its training distribution? Retention on GSM-Plus, SVAMP and MATH vs GSM8K test for the `08` S′ adapters (scorer frozen in `scripts/p16/`).
 - `17_routes_and_generality.md` — routes and clock of per-item reversion: new GSM8K arms (RFT, head start, teacher on base-unsolved, gold with linear lr) and a MATH L3–5 generality test in Llama-3.2-1B-I and Gemma-3-1B-it (merged-fresh protocol; scorer frozen in `scripts/p17/`).
 - `18_per_item_catchup.md` — does the lagging start catch up per item, or does the undoing/convergence route follow the SFT source? Sign-split route test on the 17A new arms and 17B (scorer frozen in `scripts/p18/`).
+- `19_mechanisms.md` — why RL erases SFT effects: KL-anchoring sweep (β ∈ {0, 0.02, 0.1, 0.5}) and Dr. GRPO on damaged Gemma starts (Part I); analysis-only mechanisms appended as Part II (scorers frozen in `scripts/p19/`).
+- `20_scale_and_full_ft.md` — per-item erasure and harm-following routes at Llama-3.2-3B (LoRA) and with full fine-tuning at 1B (scorer frozen in `scripts/p20/`).
 
 Definitions used throughout:
 - w0 — exact P(answer starts with `## Step`) at T=0.8 (`probe.py --prefix`).
