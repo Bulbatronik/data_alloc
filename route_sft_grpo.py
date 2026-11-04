@@ -18,6 +18,7 @@ import math
 import os
 import random
 import re
+import shutil
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -984,6 +985,8 @@ def load_tokenizer(args):
 
 def load_fresh_model(args):
     dtype = torch.bfloat16 if args.bf16 else (torch.float16 if args.fp16 else torch.float32)
+    if getattr(args, "fp32_master", False):  # --no_lora --fp32_master: fp32 weights, trained under --bf16 autocast
+        dtype = torch.float32
     auto_class = AutoModelForImageTextToText if args.dataset in IMAGE_DATASETS else AutoModelForCausalLM
     model = auto_class.from_pretrained(
         args.model,
@@ -1166,6 +1169,8 @@ def train_grpo(model, tokenizer, ds: Dataset, args, output_dir: Path, panel_prom
     if args.panel_prefix and panel_prompts:
         callbacks.append(PrefixPanel(text_tokenizer(tokenizer), panel_prompts, args.panel_prefix, args.panel_every,
                                      output_dir / "panel.jsonl", resuming=resume is not None))
+    if getattr(args, "grpo_keep_ckpt_steps", None):
+        callbacks.append(PruneCheckpoints(args.grpo_keep_ckpt_steps, getattr(args, "grpo_ckpt_bf16", False)))
     trainer = GRPOTrainer(
         model=model,
         args=grpo_args,
@@ -1177,9 +1182,77 @@ def train_grpo(model, tokenizer, ds: Dataset, args, output_dir: Path, panel_prom
     )
     if resume:
         print(f"[grpo] resuming from {resume}")
+        peft_model = trainer.accelerator.unwrap_model(trainer.model)
+        if "ref" in getattr(peft_model, "peft_config", {}):  # --grpo_kl_beta != 0 on a PEFT model (see below)
+            load_resume_default_adapter(peft_model, resume)
     trainer.train(resume_from_checkpoint=resume)
     trainer.model.save_pretrained(output_dir)  # adapter after the GRPO stage
+    if getattr(args, "grpo_keep_ckpt_steps", None) and getattr(args, "grpo_ckpt_bf16", False):
+        cast_safetensors_bf16(output_dir)  # the final full model as stored for evaluation (bf16, like the checkpoints)
     return trainer.model
+
+
+def cast_safetensors_bf16(d: Path):
+    """Cast the float32 tensors of a saved FULL model (model*.safetensors in d; never LoRA adapter files) to bfloat16 in
+    place, i.e. the dtype probe.py evaluates in. No-op for files without float32 tensors."""
+    from safetensors.torch import load_file, save_file
+    for f in sorted(Path(d).glob("model*.safetensors")):
+        t = load_file(str(f))
+        if not any(v.dtype == torch.float32 for v in t.values()):
+            continue
+        tmp = f.with_name(f.name + ".tmp")
+        save_file({k: (v.to(torch.bfloat16) if v.dtype == torch.float32 else v).contiguous() for k, v in t.items()},
+                  str(tmp), metadata={"format": "pt"})
+        os.replace(tmp, f)
+
+
+class PruneCheckpoints(TrainerCallback):
+    """--grpo_keep_ckpt_steps: after each checkpoint save, every OLDER checkpoint loses its optimizer, scheduler and RNG
+    state (resuming needs only the newest), and is deleted unless its step is listed; with --grpo_ckpt_bf16 the
+    full-model weights of the kept ones are cast to bfloat16 (what probe.py evaluates). At the end of training the last
+    checkpoint is pruned the same way. Bounds the disk use of full fine-tuning: fp32 weights + AdamW state are about 16
+    bytes per parameter per checkpoint (~20 GB for a 1.2B model)."""
+
+    RESUME_FILES = ("optimizer.pt", "scheduler.pt", "scaler.pt")
+
+    def __init__(self, keep_steps, to_bf16: bool):
+        self.keep, self.to_bf16 = {int(s) for s in keep_steps}, to_bf16
+
+    @staticmethod
+    def checkpoints(output_dir):
+        found = [p for p in Path(output_dir).glob("checkpoint-*") if p.is_dir() and p.name.split("-")[-1].isdigit()]
+        return sorted(found, key=lambda p: int(p.name.split("-")[-1]))
+
+    def prune(self, ckpt: Path):
+        if int(ckpt.name.split("-")[-1]) not in self.keep:
+            shutil.rmtree(ckpt, ignore_errors=True)
+            return
+        for f in ckpt.iterdir():
+            if f.name in self.RESUME_FILES or f.name.startswith("rng_state"):
+                f.unlink()
+        if self.to_bf16:
+            cast_safetensors_bf16(ckpt)
+
+    def on_save(self, args, state, control, **kwargs):
+        if state.is_world_process_zero:
+            for ckpt in self.checkpoints(args.output_dir)[:-1]:
+                self.prune(ckpt)
+
+    def on_train_end(self, args, state, control, **kwargs):
+        if state.is_world_process_zero:
+            for ckpt in self.checkpoints(args.output_dir):
+                self.prune(ckpt)
+
+
+def load_resume_default_adapter(peft_model, checkpoint: str):
+    """With --grpo_kl_beta != 0 and a PEFT model, TRL adds a frozen copy of the start adapter named "ref" (the KL
+    reference; under --merge_sft_start a B = 0 copy, i.e. the merged SFT start), and checkpoints save it in
+    checkpoint-N/ref/. When a checkpoint has adapter sub-folders, transformers' resume loads only those, so the trained
+    "default" adapter at the checkpoint root would be skipped and GRPO would resume from the step-0 LoRA. Load it here
+    (the call transformers makes when there are no sub-folders); "ref" is then reloaded from ref/ unchanged. Runs
+    without a "ref" adapter (beta = 0) never reach this."""
+    peft_model.load_adapter(checkpoint, adapter_name="default", is_trainable=True)
+    print(f"[grpo] resume: trained 'default' adapter loaded from {checkpoint} (KL reference 'ref' kept)")
 
 
 # ---------------------------------------------------------------------------
@@ -1506,8 +1579,13 @@ def run(args):
         # Adapters are saved to <method>/sft and <method>/grpo after each stage.
         if len(sft_ds) and args.reuse_from:
             adapter = Path(args.reuse_from) / method / args.reuse_stage
-            print(f"[stage 1] adapter reused from {adapter}")
-            model = PeftModel.from_pretrained(model, adapter, is_trainable=True)
+            if args.no_lora and not (adapter / "adapter_config.json").exists():  # full fine-tuning: a saved model dir
+                print(f"[stage 1] full model reused from {adapter}")
+                del model
+                model = load_fresh_model(argparse.Namespace(**{**vars(args), "model": str(adapter)}))
+            else:
+                print(f"[stage 1] adapter reused from {adapter}")
+                model = PeftModel.from_pretrained(model, adapter, is_trainable=True)
             if torch.cuda.is_available():
                 model = model.cuda()
         elif len(sft_ds):
@@ -1742,6 +1820,15 @@ def build_parser():
     p.add_argument("--fp16", action="store_true")
     p.add_argument("--gradient_checkpointing", action="store_true")
     p.add_argument("--logging_steps", type=int, default=10)
+    p.add_argument("--fp32_master", action="store_true",
+                   help="With --no_lora: load the weights in float32 and train them under --bf16 autocast (fp32 master "
+                        "weights, as PEFT keeps LoRA weights). Without it, --no_lora --bf16 trains pure-bf16 weights, "
+                        "which round away Adam updates below ~1/256 of a weight's size (most updates at lr <= 1e-5).")
+    p.add_argument("--grpo_keep_ckpt_steps", type=int, nargs="*", default=None,
+                   help="Prune GRPO checkpoints: keep only these steps (e.g. 75 225 375), without optimizer state, once "
+                        "a newer checkpoint exists (the newest stays complete for resuming); see PruneCheckpoints.")
+    p.add_argument("--grpo_ckpt_bf16", action="store_true",
+                   help="With --grpo_keep_ckpt_steps: store kept full-model checkpoints and the final model in bf16.")
 
     return p
 
@@ -1770,6 +1857,10 @@ if __name__ == "__main__":
         args.lora_init_seed = args.seed
     if args.merge_sft_start and args.no_lora:
         raise ValueError("--merge_sft_start starts GRPO with a fresh LoRA; it cannot be combined with --no_lora.")
+    if args.fp32_master and not args.no_lora:
+        raise ValueError("--fp32_master is for full fine-tuning (--no_lora); PEFT already keeps LoRA weights in fp32.")
+    if args.grpo_ckpt_bf16 and not args.grpo_keep_ckpt_steps:
+        raise ValueError("--grpo_ckpt_bf16 acts on the checkpoints pruned by --grpo_keep_ckpt_steps.")
     if args.grpo_ids and args.grpo_on_sft_prompts:
         raise ValueError("--grpo_ids fixes a GRPO pool disjoint from SFT; it cannot be combined with --grpo_on_sft_prompts.")
     run(args)

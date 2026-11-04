@@ -690,6 +690,205 @@ def stage_directions(args, st: Start, tokenizer, train):
 
 
 # ---------------------------------------------------------------------------
+# M3 (prereg 19; additive): the expected step-0 gradient from G independent batches, and its noise
+# ---------------------------------------------------------------------------
+
+def m3_batch_list(args, st: Start, pool: Sequence[int]) -> List[dict]:
+    """Batch b = --batch_prompts distinct prompts drawn uniformly from the start's GRPO pool, independently for every b
+    (so batches are i.i.d.; a prompt can recur across batches), plus a generation seed. Both are fixed by
+    (m3_seed, dtag, b), so the list does not depend on n_batches and G-prefixes are nested."""
+    pool = sorted(pool)
+    return [{"batch": b,
+             "prompts": sorted(random.Random(batch_seed("m3_prompts", args.m3_seed, st.dtag, b)).sample(pool, args.batch_prompts)),
+             "gen_seed": batch_seed(args.sample_seed, "m3_gen", args.m3_seed, st.dtag, b)}
+            for b in range(args.n_batches)]
+
+
+def stage_directions_avg(args, st: Start, tokenizer, train):
+    """M3. For each of n_batches i.i.d. batches (8 prompts x 8 rollouts at the start, T 0.8, TRL cut, reward marked +
+    stop + censor, TRL group advantages; exactly Part 1's recipe at 64 rollouts) the per-batch merged-weight gradient
+    G_b = dL_b/dW (loss_type grpo, 1/64 normalisation, fp32, TF32 off) and its fresh-LoRA image P_b = G_b A^T.
+    Writes, in out_dir/directions/<dtag>/:
+      v0_lora_g<G>.safetensors  -s^2 (mean_{b<G} P_b) A for G in --g_list: Part 1's v0_lora map applied to the
+                                G-batch mean (Part 1's own v0 is the 32-batch mean of 256 distinct pool prompts)
+      rand_lora_r<j>            extra random directions in the same geometry (j = 2..n_rand; seed (rand_lora, dtag, j))
+      m3_gram.safetensors       gram_W[b,c] = <v_b, v_c>_F with v_b = -s^2 P_b A (merged weights, v0_lora geometry);
+                                gram_B[b,c] = <s P_b, s P_c> (trainable-B geometry: dL/dB = s G A^T at B = 0);
+                                ip_W[b,k] = <v_b, ref_k>_F for the refs in m3_gram.json (v<T>, Part 1 v0_lora, sft);
+                                raw_sq[b] = |G_b|^2 and raw_cross[b] = <sum_{c<b} G_c, G_b> (dense raw geometry)
+      m3_gram.json              batch list (prompts, seeds), per-batch reward / zero-advantage share, refs and norms.
+    No summary statistic (SNR, cosines) is computed here: score_prereg19_grad.py derives them from the Gram files."""
+    if st.mode != "merged":
+        raise SystemExit("M3 needs a merged-fresh start (B = 0)")
+    ddir = Path(args.out_dir) / "directions" / st.dtag
+    ddir.mkdir(parents=True, exist_ok=True)
+    factors, s = start_lora(st)
+    names = sorted(factors)
+    assert all(not bool(B.abs().max() > 0) for _, B in factors.values()), "fresh LoRA expected (B = 0)"
+    run_info = check_run(st)
+    pool = grpo_pool(st, train)
+    batches = m3_batch_list(args, st, pool)
+    by_id = {ex["example_id"]: ex for ex in train}
+    timings = {}
+    meta_common = {"start": st.tag, "dtag": st.dtag, "mode": st.mode, "seed": st.seed, "init_seed": st.init_seed,
+                   "sft_adapter": st.sft, "run_dir": str(st.run_dir) if st.run_dir else None,
+                   "merged_start": run_info or None, "scaling": s, "n_modules": len(names), "pool_size": len(pool),
+                   "m3_seed": args.m3_seed, "batch_prompts": args.batch_prompts, "group": args.group}
+
+    # 1. Rollouts, one TRL generation batch per M3 batch; resumable per batch (a batch is complete with 64 rows).
+    rollout_path = Path(args.out_dir) / f"rollouts_m3_{st.dtag}.jsonl"
+    per = args.batch_prompts * args.group
+    rows = read_jsonl(rollout_path)
+    cnt = {}
+    for r in rows:
+        cnt[r["batch"]] = cnt.get(r["batch"], 0) + 1
+    rows = [r for r in rows if cnt[r["batch"]] == per and r["batch"] < args.n_batches]
+    done = {r["batch"] for r in rows}
+    rollout_path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+    todo = [bt for bt in batches if bt["batch"] not in done]
+    if todo:
+        t0 = time.time()
+        model = load_sampler(st)
+        reward_dir = Path(args.out_dir) / f"reward_log_m3_{st.dtag}"
+        reward_dir.mkdir(parents=True, exist_ok=True)
+        reward = R.make_reward(reward_dir, R.stop_token_ids(tokenizer), marked=True, dataset="gsm8k",
+                               needs_stop=True, censor=CENSOR)
+        for bt in todo:
+            chunk = bt["prompts"]
+            ids = sample_ids(model, tokenizer, [by_id[e]["prompt"] for e in chunk], args.group, bt["gen_seed"],
+                             trl_cut=True)
+            texts = tokenizer.batch_decode(ids, skip_special_tokens=True)
+            golds = [by_id[chunk[j // args.group]]["gold_answer"] for j in range(len(ids))]
+            exs = [chunk[j // args.group] for j in range(len(ids))]
+            rewards = reward(completions=texts, gold_answer=golds, completion_ids=ids, trainer_state=None,
+                             example_id=exs)
+            adv = grpo_advantages(rewards, args.group).tolist()
+            new = [{"batch": bt["batch"], "example_id": exs[j], "sample": j % args.group, "reward": rewards[j],
+                    "advantage": adv[j], "n_tokens": len(ids[j]), "completion": texts[j], "token_ids": ids[j],
+                    "gen_seed": bt["gen_seed"]} for j in range(len(ids))]
+            with rollout_path.open("a") as f:
+                f.writelines(json.dumps(r) + "\n" for r in new)
+            rows += new
+            print(f"[m3] {st.dtag}: batch {bt['batch'] + 1}/{args.n_batches} rolled out, {time.time() - t0:.0f}s",
+                  flush=True)
+        timings["rollouts"] = {"batches": len(todo), "completions": len(todo) * per, "seconds": time.time() - t0}
+        del model
+        torch.cuda.empty_cache()
+    by_batch = {b: [] for b in range(args.n_batches)}
+    for r in rows:
+        by_batch[r["batch"]].append(r)
+    for b in by_batch:
+        by_batch[b].sort(key=lambda r: (batches[b]["prompts"].index(r["example_id"]), r["sample"]))
+
+    # 2. Per-batch gradients at the start (fp32, TF32 off) and their fresh-LoRA images.
+    t0 = time.time()
+    model = load_start_fp32(st, factors, s)
+    A = {n: factors[n][0].cuda() for n in names}
+    prompt_ids = {e: tokenizer(by_id[e]["prompt"])["input_ids"] for bt in batches for e in bt["prompts"]}
+    P = {n: [] for n in names}
+    raw_sq, raw_cross, binfo = [], [], []
+    S_raw = None if args.no_raw_stats else {n: torch.zeros_like(model.get_submodule(n).weight) for n in names}
+    for b in range(args.n_batches):
+        rb = by_batch[b]
+        seqs = [(prompt_ids[r["example_id"]], r["token_ids"]) for r in rb]
+        coefs = grpo_loss_coefs([r["advantage"] for r in rb], [r["n_tokens"] for r in rb], len(rb))
+        G = merged_gradient(model, names, seqs, coefs, token_budget=args.grad_token_budget)
+        sq, cross = 0.0, 0.0
+        for n in names:
+            P[n].append(G[n] @ A[n].T)
+            if S_raw is not None:
+                sq += float((G[n].double() ** 2).sum())
+                cross += float((S_raw[n].double() * G[n].double()).sum())
+                S_raw[n] += G[n]
+        raw_sq.append(sq)
+        raw_cross.append(cross)
+        rewards = [r["reward"] for r in rb]
+        scored = [x for x in rewards if x is not None]
+        adv = torch.tensor([r["advantage"] for r in rb]).view(-1, args.group)
+        binfo.append({**batches[b], "mean_reward": sum(scored) / max(len(scored), 1),
+                      "n_censored": sum(x is None for x in rewards),
+                      "frac_zero_adv_groups": float((adv.abs().sum(1) == 0).float().mean()),
+                      "n_active": sum(c != 0 for c in coefs), "n_tokens": sum(r["n_tokens"] for r in rb)})
+        del G
+        if (b + 1) % 8 == 0 or b + 1 == args.n_batches:
+            print(f"[m3] {st.dtag}: gradients {b + 1}/{args.n_batches}, {time.time() - t0:.0f}s", flush=True)
+    timings["gradients"] = {"batches": args.n_batches, "seconds": time.time() - t0}
+    del S_raw, model
+    torch.cuda.empty_cache()
+
+    # 3. Gram matrices and inner products with reference directions (fp64 accumulation).
+    nb = args.n_batches
+    gram_W = torch.zeros(nb, nb, dtype=torch.float64, device="cuda")
+    gram_B = torch.zeros(nb, nb, dtype=torch.float64, device="cuda")
+    refs = {}
+    for T in args.ckpts:
+        ck = st.run_dir / "grpo" / f"checkpoint-{T}" if st.run_dir else None
+        if ck is not None and ck.exists():
+            ckpt_f, s_ck = load_adapter_factors(ck)
+            assert abs(s_ck - s) < 1e-12 and sorted(ckpt_f) == names
+            refs[f"v{T}"] = realised_direction(factors, ckpt_f, s)
+    p1 = Path(args.m3_ref_dir) / "directions" / st.dtag / "v0_lora.safetensors"
+    if p1.exists():
+        refs["v0_lora_part1"] = load_direction(p1, device="cpu")
+    if st.kind == "gold":
+        sft_f, s_sft = load_adapter_factors(st.sft)
+        refs["sft"] = {n: {"U": s_sft * B, "V": A_.clone()} for n, (A_, B) in sft_f.items()}
+    ref_names = sorted(refs)
+    ip_W = torch.zeros(nb, len(ref_names), dtype=torch.float64, device="cuda")
+    for n in names:
+        Pn = torch.stack(P[n]).double()                      # [nb, out, r]
+        An = A[n].double()
+        flat = Pn.reshape(nb, -1)
+        gram_B += (s * s) * (flat @ flat.T)
+        gram_W += (s ** 4) * ((Pn @ (An @ An.T)).reshape(nb, -1) @ flat.T)
+        for k, rn in enumerate(ref_names):
+            d = refs[rn][n]
+            Z = d["U"].double().cuda() @ (d["V"].double().cuda() @ An.T)   # [out, r]: <P_b A, U V> = <P_b, U V A^T>
+            ip_W[:, k] += -(s * s) * (flat @ Z.reshape(-1))
+    ref_norms = {rn: direction_norm({n: {k: v.cuda() for k, v in refs[rn][n].items()} for n in names})
+                 for rn in ref_names}
+    tensors = {"gram_W": gram_W.cpu(), "gram_B": gram_B.cpu(), "ip_W": ip_W.cpu(),
+               "raw_sq": torch.tensor(raw_sq, dtype=torch.float64),
+               "raw_cross": torch.tensor(raw_cross, dtype=torch.float64)}
+    save_file({k: v.contiguous() for k, v in tensors.items()}, str(ddir / "m3_gram.safetensors"))
+    (ddir / "m3_gram.json").write_text(json.dumps({**meta_common, "n_batches": nb, "refs": ref_names,
+                                                   "ref_norms": ref_norms, "raw_stats": not args.no_raw_stats,
+                                                   "batches": binfo}, indent=1, default=str))
+    if args.save_batch_grads:
+        save_file({n: torch.stack(P[n]).float().cpu().contiguous() for n in names},
+                  str(ddir / "m3_batch_PAt.safetensors"))
+
+    # 4. Nested-prefix directions and the extra random directions.
+    for G_ in sorted(set(g for g in args.g_list if g <= nb)):
+        d = {n: {"U": (-s * s) * torch.stack(P[n][:G_]).mean(0), "V": A[n].clone()} for n in names}
+        info = binfo[:G_]
+        save_direction(ddir / f"v0_lora_g{G_}.safetensors", d,
+                       {**meta_common, "name": f"v0_lora_g{G_}", "n_batches_used": G_, "norm": direction_norm(d),
+                        "n_rollouts": G_ * per, "batch_ids": [x["batch"] for x in info],
+                        "mean_reward": sum(x["mean_reward"] for x in info) / G_,
+                        "frac_zero_adv_groups": sum(x["frac_zero_adv_groups"] for x in info) / G_})
+    for j in range(2, args.n_rand + 1):
+        path = ddir / f"rand_lora_r{j}.safetensors"
+        if path.exists():
+            continue
+        gen = torch.Generator(device="cuda").manual_seed(batch_seed("rand_lora", st.dtag, j))
+        rand = {}
+        for n in names:
+            A_, B_ = (t.cuda() for t in factors[n])
+            Rn = torch.randn((B_.shape[0], A_.shape[1]), generator=gen, device="cuda", dtype=torch.float32)
+            U, V = lora_geometry(Rn, A_, B_, s)
+            rand[n] = {"U": U, "V": V}
+        save_direction(path, rand, {**meta_common, "name": f"rand_lora_r{j}", "norm": direction_norm(rand),
+                                    "rng_seed": batch_seed("rand_lora", st.dtag, j),
+                                    "note": "unscaled; the phi stage rescales it to --rand_match's RMS phi"})
+    timings["directions_total"] = time.time() - t0
+    print(f"[m3] {st.dtag}: saved v0_lora_g{sorted(g for g in args.g_list if g <= nb)}, refs {ref_names}", flush=True)
+    del P
+    torch.cuda.empty_cache()
+    return timings
+
+
+# ---------------------------------------------------------------------------
 # phi by central finite differences
 # ---------------------------------------------------------------------------
 
@@ -774,10 +973,11 @@ def exact_phi(model, names, seqs, idx_list, direction, temperature=TEMPERATURE) 
 
 def stage_phi(args, st: Start, tokenizer, test):
     out_dir = Path(args.out_dir)
-    samples = read_jsonl(out_dir / f"samples_{st.tag}_A.jsonl")
+    sdir = Path(getattr(args, "samples_dir", None) or out_dir)  # M3: Part 1's set A; default: out_dir (Part 1)
+    samples = read_jsonl(sdir / f"samples_{st.tag}_A.jsonl")
     if not samples:
         raise SystemExit(f"no set-A samples for {st.tag}; run --stage sample first")
-    calib_pool = read_jsonl(out_dir / f"samples_{st.tag}_B.jsonl") or samples
+    calib_pool = read_jsonl(sdir / f"samples_{st.tag}_B.jsonl") or samples
     calib = random.Random(0).sample(calib_pool, min(args.n_calib, len(calib_pool)))
     prompts = {ex["example_id"]: tokenizer(ex["prompt"])["input_ids"] for ex in test}
     seqs = [(prompts[r["item"]], r["token_ids"]) for r in samples]
@@ -825,12 +1025,16 @@ def stage_phi(args, st: Start, tokenizer, test):
         info = {"eps": chosen, "trials": trials, "dir_norm": dnorm, "W_norm": pert.base_norm, "rms_phi": rms(phi),
                 "calib_seconds": t_cal, "fd_seconds": t_fd, "n": len(seqs)}
         if dname.startswith("rand"):
-            ref = [r["phi"] for r in existing if r["direction_name"] == f"v0_lora_{st.dtag}"]
+            match = getattr(args, "rand_match", "v0_lora")  # M3 may match to v0_lora_g<G>; default = Part 1
+            ref = [r["phi"] for r in existing if r["direction_name"] == f"{match}_{st.dtag}"]
             if not ref:
-                raise SystemExit("rand_lora needs v0_lora's phi first (same run or file)")
+                raise SystemExit("rand_lora needs v0_lora's phi first (same run or file)" if match == "v0_lora"
+                                 else f"{dname} needs {match}'s phi first (same run or file)")
             c = rms(torch.tensor(ref)) / max(rms(phi), 1e-300)
             phi, sec = phi * c, sec * c * c
             info.update({"rms_match_factor": c, "rms_phi_matched": rms(phi), "rms_phi_v0_lora": rms(torch.tensor(ref))})
+            if match != "v0_lora":  # M3 only (the Part 1 eps json is unchanged)
+                info["rand_match"] = match
         if args.verify_exact > 0:
             idx = list(range(min(args.verify_exact, len(cseqs))))
             pert.set(None)
@@ -889,6 +1093,25 @@ def build_parser():
     p.add_argument("--token_budget", type=int, default=16384, help="phi: tokens per forward batch.")
     p.add_argument("--grad_token_budget", type=int, default=4096, help="directions: tokens per backward batch.")
     p.add_argument("--timings_out", default=None, help="Append this call's timings (json line).")
+    # --- M3 (prereg 19, additive): expected step-0 gradient from G independent batches. Defaults keep Part 1 exact.
+    p.add_argument("--n_batches", type=int, default=0,
+                   help="M3: > 0 replaces the directions stage by the batch-averaged one (stage_directions_avg): "
+                        "n_batches independent GRPO batches of --batch_prompts prompts x --group samples.")
+    p.add_argument("--g_list", type=int, nargs="+", default=[1, 4, 16, 64],
+                   help="M3: save v0_lora_g<G> = mean over the first G batches (nested prefixes).")
+    p.add_argument("--batch_prompts", type=int, default=8, help="M3: prompts per batch (TRL: 8 x 8 = 64 rollouts).")
+    p.add_argument("--m3_seed", type=int, default=19, help="M3: seed of the batch list (prompt draws, generation).")
+    p.add_argument("--n_rand", type=int, default=1,
+                   help="M3: random LoRA-geometry directions; j >= 2 are saved as rand_lora_r<j> (j = 1 is Part 1's "
+                        "rand_lora and is not recomputed).")
+    p.add_argument("--m3_ref_dir", default="runs/firstgrad/part1",
+                   help="M3: dir whose directions/<dtag>/v0_lora.safetensors (Part 1's v0) enters the weight cosines.")
+    p.add_argument("--save_batch_grads", action="store_true", help="M3: also save the per-batch G_b A^T (fp32).")
+    p.add_argument("--no_raw_stats", action="store_true", help="M3: skip the dense raw-gradient running sums.")
+    p.add_argument("--samples_dir", default=None,
+                   help="phi: read samples_<tag>_A/B.jsonl from here (default --out_dir), e.g. Part 1's set A.")
+    p.add_argument("--rand_match", default="v0_lora",
+                   help="phi: rand_* directions are rescaled to this direction's RMS phi (default: Part 1's v0_lora).")
     return p
 
 
@@ -907,7 +1130,10 @@ def main():
     if args.stage in ("sample", "all"):
         timings["sample"] = stage_sample(args, st, tokenizer, test)
     if args.stage in ("directions", "all"):
-        timings["directions"] = stage_directions(args, st, tokenizer, train)
+        if args.n_batches > 0:  # M3 (prereg 19); the registered Part 1 path below is untouched
+            timings["directions"] = stage_directions_avg(args, st, tokenizer, train)
+        else:
+            timings["directions"] = stage_directions(args, st, tokenizer, train)
     if args.stage in ("phi", "all"):
         timings["phi"] = stage_phi(args, st, tokenizer, test)
     print(json.dumps(timings, default=str), flush=True)

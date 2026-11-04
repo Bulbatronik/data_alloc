@@ -84,6 +84,9 @@ def parse_args():
     p.add_argument("--max_train_samples", type=int, default=1000)
     p.add_argument("--data_seed", type=int, default=1234)
     p.add_argument("--out", required=True)
+    p.add_argument("--merged_start", action="store_true",
+                   help="Each --adapters path is an SFT adapter: evaluate base + that LoRA merged into the weights, i.e. "
+                        "the route_sft_grpo --merge_sft_start GRPO start before any GRPO step (rows get merged_start=true).")
     return p.parse_args()
 
 
@@ -91,6 +94,14 @@ def load_model(args, tokenizer, adapter: str | None):
     model = R.load_fresh_model(
         SimpleNamespace(model=args.model, dataset=args.dataset, bf16=True, fp16=False, gradient_checkpointing=False)
     )
+    if adapter and getattr(args, "merged_start", False):  # merged SFT start (as route_sft_grpo builds it for GRPO)
+        return R.merge_sft_adapter(model, adapter).cuda().eval()
+    if adapter and not (Path(adapter) / "adapter_config.json").exists() and (Path(adapter) / "config.json").exists():
+        # a full fine-tuning model dir (route_sft_grpo --no_lora: <method>/sft, grpo/checkpoint-N): the model itself, bf16
+        del model
+        return R.load_fresh_model(
+            SimpleNamespace(model=adapter, dataset=args.dataset, bf16=True, fp16=False, gradient_checkpointing=False)
+        ).cuda().eval()
     merged = R.merged_start_info(adapter) if adapter else None
     if merged and merged["sft_adapter"]:  # a --merge_sft_start GRPO adapter: base + merged SFT LoRA + this adapter
         sft = merged["sft_adapter"] if Path(merged["sft_adapter"]).exists() else merged["sft_adapter_abs"]
@@ -324,6 +335,7 @@ def main():
                 "sample": i, "gold": row["gold_answer"],
                 "correct": R.answer_is_correct(prefix + text, row["gold_answer"], args.reward == "marked", args.dataset),
                 "stopped": stopped, "completion": prefix + text,
+                **({"merged_start": True} if args.merged_start else {}),
             }
             for row, i, text, stopped in generate(args, model, tokenizer, ds)
         ]
