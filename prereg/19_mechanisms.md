@@ -186,3 +186,9 @@ Part IIb (M3 expected and optimiser-preconditioned gradient; M4 gradient alignme
 - Repair of SFT damage is not gated by the damaged start's per-item learning signal: items it never solved were repaired as fully as items it solved sometimes. The repair comes from what RL learns on other items, not from rewards on the item itself.
 - Gemma's damage persists uniformly across items and its arms do not have the most zero-signal groups. Its failure is therefore global, not a per-item absence of signal.
 - That leaves the global accounts under test in Part I (distance travelled, M5; GRPO length bias, M6).
+
+## Conduct note (2026-11-05, before Part I scoring)
+During a training-health check (`runs/reviews/round4/scratch/health/train_health.py`; training-side metrics from each run's latest `trainer_state.json`), the lead saw logged training reward, KL, completion length, clipped ratio and zero-std share for the finished and running M5 and M6 runs.
+- For M6 the logged training clipped ratio is essentially M6a's registered statistic: the Gemma dr_grpo runs showed rising lengths and clipped ratios of 0.47–0.88 at their latest checkpoints. It was seen before scoring.
+- No test-set outcome was read.
+- No design, threshold or decision was changed, and none can be: all runs were launched under the frozen scripts on 2026-11-04.
