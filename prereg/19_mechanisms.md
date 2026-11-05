@@ -163,3 +163,26 @@ Calibration: 2,100 synthetic datasets at real sizes, job 27699259.
 - Outputs: `runs/theory/scratch/score_prereg19_{xlik,repair}_out.txt`.
 
 Part IIb (M3 expected and optimiser-preconditioned gradient; M4 gradient alignment vs dataset distance) will be appended before any of its statistics is computed.
+
+## Outcome, Part IIa M1 (scored 2026-11-05 with the frozen scorer; `runs/theory/scratch/score_prereg19_repair_out.txt`; job 27895792; SHA 6c6179de… checked)
+
+**Verdicts (format-insensitive primary).**
+- **M1-1 not held in either set.** The hypothesis "repair needs signal" is not supported.
+  - GSM8K gold pool: C_ex −0.164 [−0.304, −0.051], the opposite sign to the prediction.
+    - Hurt items with no correct sample on the selection half: 119 per arm, 89% of their damage closed (closed_Z 0.887 [0.793, 1.042]).
+    - Hurt items with a correct sample: 205 per arm, closed_N 1.028 [0.951, 1.165].
+    - Repair excess over the tilt null: +0.94 vs +0.78.
+  - Gemma harmful pool (post hoc arms): C_ex +0.084 [−0.006, +0.167], below the 0.10 bar.
+    - Repair is partial for both groups: closed_Z 0.317 [0.248, 0.393], closed_N 0.431 [0.367, 0.519].
+- **M1-1b:** not held (it requires M1-1).
+- **Llama MATH gold (reported):** C_ex −0.208 [−0.582, +0.029].
+- **Arm level A:** not held.
+  - A-1: Spearman +0.600 [−0.086, +0.886] against ≤ −0.6.
+  - A-2: the arms with the largest early zero-variance share are Llama MATH gold and GSM8K gold-50, not the Gemma arms.
+- **M1-3 (descriptive):** the composition share κ is +0.002 [−0.045, +0.047]. Llama's excess repair exceeds Gemma's by +0.66 within both item groups.
+- **Marked grader:** the same verdicts (GSM8K C_ex −0.296; Gemma +0.065; A-1 +0.429).
+
+**Reading.**
+- Repair of SFT damage is not gated by the damaged start's per-item learning signal: items it never solved were repaired as fully as items it solved sometimes. The repair comes from what RL learns on other items, not from rewards on the item itself.
+- Gemma's damage persists uniformly across items and its arms do not have the most zero-signal groups. Its failure is therefore global, not a per-item absence of signal.
+- That leaves the global accounts under test in Part I (distance travelled, M5; GRPO length bias, M6).
