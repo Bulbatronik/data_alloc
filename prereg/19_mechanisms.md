@@ -249,3 +249,64 @@ Scorer `score_prereg19_grad.py`. Tooling report: `runs/reviews/round4/scratch/T1
 - The plan's Spearman(a, |ΔD|) had 8–28% false positives in null worlds. It is reported only.
 
 **Scoring.** `python -I prereg/scripts/p19/score_prereg19_grad.py --schema_only`, then `--unblind --part all` (CPU, Slurm). Output: `runs/theory/scratch/score_prereg19_grad_out.txt`.
+
+## Part IIb (registered 2026-11-05, before any M3 or M4 run or statistic)
+
+Tooling report: `runs/reviews/round4/scratch/T19_grad_report.md` (§6 predictions, §7 optimiser extension). Code: `firstgrad.py` additive M3 stages (commits ca28859 and 0756a02). Registered Part 1 behaviour is bit-identical: 17/17 output files, jobs 27672099 and 27895159.
+
+Commit 0756a02 was made from an earlier copy of the lead session (see `runs/reviews/round4/scratch/lead_branch_standdown_NOTE.txt`), not from the session registering this part. Its content was checked: 156 lines added, none removed.
+
+Frozen scripts (`prereg/scripts/p19/`; SHA-256; identical to the working copies):
+- `galign.py` 1411fac59926cda22f03c1725c4c4f47ae9d62714579acd57b4d833fa1300e84
+- `m3phi.py` bb5fefd50afd19e4a6c9561ce993a77912d619d88ca332ff723ab94c7c559741
+- `score_prereg19_grad.py` 2862110819e1e692b292a21cfe815c4817c3d9faf668d1bb0a1b8c872256ade5
+- `S19_m3.sbatch` 0fba1116b01896b2b25b371e1d7f0cf4fb869620ae019897d4e6ce0fb70aba34
+- `S19_m4.sbatch` 7971dc310da5c2b861bfb920b30923b3c33aa30f2972cb3a86bd89bc582c0f75
+
+**Correction to Part I's motivation.** Prereg 15 Part 1's step-0 direction was not a single batch. It averaged 256 prompts × 8 rollouts (≈ 32 TRL batches). Its weight-space cosine with the realised 25-step update was 0.068 (and 0.132 with the 150-step update), a value seen during tooling and disclosed. Noise alone is therefore an unlikely explanation of Part 1's failure. M3 tests noise (G up to 256) and, as the main hypothesis, the optimiser's geometry: training uses AdamW (β 0.9/0.999, ε 1e-8, 10 warm-up steps, so the first realised update is step 2), whose updates differ in direction from the raw gradient.
+
+### M3 — why the first gradient did not predict reversion (three merged-fresh gold starts, seeds 42–44; placebo: the untrained start's same direction)
+**Directions** (fresh-LoRA parameterisation; exact φ by `m3phi.py`, agreeing with finite differences at correlation ≥ 0.999996):
+- raw ḡ_G;
+- sign(ḡ_G);
+- Adam-preconditioned ḡ_G/(√v̂_G + ε), with v̂_G from the G batches;
+- the same with the run's own step-25 second moment;
+- the run's own first Adam steps (1, 2);
+
+each for G ∈ {1, 4, 16, 64, 256}, with matched random controls passed through the same transform.
+
+| ID | Prediction | Calibration |
+|---|---|---|
+| **M3-A** (primary) | The Adam-preconditioned direction at G = 256 passes at ≥ 2 of 3 gold starts: K1 ≤ −0.08; K1 at least 0.05 below the mean of its 4 matched (same-preconditioner) random controls and at least 0.05 below its placebo; and K1 at least 0.08 below the raw direction at the same G and start | false-positive rate ≤ 0.010 when Adam and raw carry equal signal; power 0.50–1.00 when the Adam geometry carries it |
+| M3-1 | The raw direction passes the frozen K1′ rule at ≥ 2 of 3 starts at G = 16 and G = 64 | — |
+| M3-2 | The slope of mean raw K1 on log₂ G has a 95% CI below 0 (more averaging, better prediction) | — |
+| M3-3 (guard) | If M3-1 fails while SNR_256 ≥ 4 at ≥ 2 starts, the first-order signal is absent, not noise-limited | — |
+
+**Registered reading.** If no direction of any family, at any G, including the run's own Adam steps, passes K1′ at ≥ 2 starts, reversion is a multi-step effect that no single first step predicts.
+
+**Reported, not predicted.** sign, the step-25 preconditioner and the run's own Adam steps against their controls; K2 per direction; SNR; cosines with the realised 25- and 150-step updates.
+
+### M4 — why the off-distribution prediction failed (gold-250 seed-42 merged start primary; the untrained start replicates)
+- a(x) = ‖P g(x)‖/‖g(x)‖: the share of item x's per-item gradient in the span of the RL-pool gradients.
+  - Sketched: d = 8,192, r = 64, rows weighted √(p(1 − p)).
+  - Sets: GSM8K test, GSM-Plus, SVAMP, MATH-600, and the RL pool.
+
+| ID | Prediction | Calibration |
+|---|---|---|
+| **M4-a** | A_off/A_in (cross-fitted). "Dataset distance does not separate alignment" if the 95% CI lower bound is ≥ 0.8; "off-distribution alignment is lower" if the upper bound is < 0.8; otherwise inconclusive. Robust only if it holds at d ∈ {4096, 8192} × r ∈ {16, 64, 256} | — |
+| **M4-b** | The count-stratified tercile contrast of ΔD̂⁽¹⁾ΔD̂⁽²⁾ (gold-250 ΔD), pooled over the four test sets, has a hierarchical 95% CI above 0: larger erasure where alignment is larger, as the linear account's bound requires | pooled false-positive rate 0.03, power 0.73 (per set 0.02 / 0.30) |
+
+**Reading.**
+- M4-a "does not separate": the registered proxy (dataset distance) could not have worked, which explains Part 16's failure without rejecting the account.
+- M4-b held: the account's per-item bound describes erasure.
+- M4-b failed with adequate power: the linear account does not describe these runs.
+
+The plan's literal Spearman(a, |ΔD|) has false-positive rates of 8–28% because of count confounding. It is reported only.
+
+**Caveat stated in advance.** M4's ΔD comes from the continuing-adapter 375-step runs, while the gradients are taken at the merged-fresh start (Part X supports comparability but does not prove it). The gold start uses SFT seed 42, while ΔD pools seeds 42–44.
+
+### Runs and scoring
+- M3: `S19_m3.sbatch` for the three gold starts and the untrained start.
+- M4: `S19_m4.sbatch` for the gold and untrained starts.
+- Both on mit_preemptable, about 15 GPU-h in total.
+- Scoring: `prereg/scripts/p19/score_prereg19_grad.py --unblind --part all` (CPU), after `--schema_only`.
