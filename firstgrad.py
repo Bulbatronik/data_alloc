@@ -813,6 +813,7 @@ def stage_directions_avg(args, st: Start, tokenizer, train):
         if (b + 1) % 8 == 0 or b + 1 == args.n_batches:
             print(f"[m3] {st.dtag}: gradients {b + 1}/{args.n_batches}, {time.time() - t0:.0f}s", flush=True)
     timings["gradients"] = {"batches": args.n_batches, "seconds": time.time() - t0}
+    adam_ctx = m3_adam_run_grads(args, st, tokenizer, model, names, A, by_id) if args.adam_dirs else None
     del S_raw, model
     torch.cuda.empty_cache()
 
@@ -881,11 +882,163 @@ def stage_directions_avg(args, st: Start, tokenizer, train):
         save_direction(path, rand, {**meta_common, "name": f"rand_lora_r{j}", "norm": direction_norm(rand),
                                     "rng_seed": batch_seed("rand_lora", st.dtag, j),
                                     "note": "unscaled; the phi stage rescales it to --rand_match's RMS phi"})
+    if args.adam_dirs:
+        m3_adam_directions(args, st, ddir, meta_common, names, A, s, P, gram_B.cpu(), refs, ref_names, adam_ctx)
     timings["directions_total"] = time.time() - t0
     print(f"[m3] {st.dtag}: saved v0_lora_g{sorted(g for g in args.g_list if g <= nb)}, refs {ref_names}", flush=True)
     del P
     torch.cuda.empty_cache()
     return timings
+
+
+# --- M3 optimiser geometry (prereg 19; additive, only with --adam_dirs). The run's optimiser (checked in the px-mf
+# runs' training_args.bin / optimizer.pt): AdamW fused, betas (0.9, 0.999), eps 1e-8, weight decay 0, max_grad_norm 1.0,
+# lr 2e-5 with 10 linear warmup steps, so the FIRST optimizer step has lr 0 (it only fills m, v) and the first realised
+# update is step 2, from the step-0 and step-1 batches, both generated and differentiated at theta_0.
+ADAM_BETAS, ADAM_EPS, MAX_GRAD_NORM = (0.9, 0.999), 1e-8, 1.0
+
+
+def m3_run_rollouts(path: Path) -> List[dict]:
+    """rollouts.jsonl with resume replays removed (a step number that goes back starts a replay; keep the last pass)."""
+    kept: List[dict] = []
+    for x in read_jsonl(path):
+        if kept and x["step"] < kept[-1]["step"]:
+            kept = [r for r in kept if r["step"] < x["step"]]
+        kept.append(x)
+    return kept
+
+
+def m3_adam_run_grads(args, st: Start, tokenizer, model, names, A, by_id) -> dict:
+    """At theta_0: the gradients of the run's OWN step-0 and step-1 GRPO batches (logged in grpo/rollouts.jsonl:
+    example_id, reward, completion; token ids re-encoded from the text plus EOS when the logged length says so), mapped
+    to B-space images P = G A^T; and the model's module order (= the optimizer's parameter order)."""
+    order = [n for n, _ in model.named_modules() if n in set(names)]
+    out = {"order": order, "run": {}, "recon": {}}
+    path = st.run_dir / "grpo" / "rollouts.jsonl" if st.run_dir else None
+    if path is None or not path.exists():
+        print(f"[m3-adam] {st.dtag}: no rollouts.jsonl; adam_run directions skipped", flush=True)
+        return out
+    rows = m3_run_rollouts(path)
+    eos = tokenizer.eos_token_id
+    for step in (0, 1):
+        rb = [r for r in rows if r["step"] == step]
+        if len(rb) != args.batch_prompts * args.group:
+            print(f"[m3-adam] {st.dtag}: step {step} has {len(rb)} rows; adam_run skipped", flush=True)
+            out["run"] = {}
+            return out
+        seqs, ntok, n_match, n_eos = [], [], 0, 0
+        for r in rb:
+            ids = tokenizer(r["completion"], add_special_tokens=False)["input_ids"]
+            if r["n_tokens"] == len(ids) + 1:
+                ids = ids + [eos]
+                n_eos += 1
+            n_match += r["n_tokens"] == len(ids)
+            seqs.append((tokenizer(by_id[r["example_id"]]["prompt"])["input_ids"], ids))
+            ntok.append(len(ids))
+        groups = [r["example_id"] for r in rb]
+        assert all(groups[i] == groups[i - i % args.group] for i in range(len(groups))), "rollouts not grouped by prompt"
+        adv = grpo_advantages([r["reward"] for r in rb], args.group).tolist()
+        G = merged_gradient(model, names, seqs, grpo_loss_coefs(adv, ntok, len(rb)), token_budget=args.grad_token_budget)
+        out["run"][step] = {n: G[n] @ A[n].T for n in names}
+        out["recon"][step] = {"rows": len(rb), "length_match": n_match, "eos_appended": n_eos,
+                              "prompts": sorted(set(groups)), "mean_reward": sum(r["reward"] or 0 for r in rb) / len(rb)}
+        del G
+    print(f"[m3-adam] {st.dtag}: run batches 0/1 re-differentiated; reconstruction {out['recon']}", flush=True)
+    return out
+
+
+def m3_adam_directions(args, st: Start, ddir: Path, meta_common: dict, names, A, s, P, gram_B, refs, ref_names, ctx):
+    """Directions in the fresh-LoRA parameterisation, written as merged dW = U A with U = s * dB per unit lr:
+      sign_g<G>     dB = -sign(gbar_G)                         Adam's first step direction for the G-batch mean
+      adamv_g<G>    dB = -gbar_G / (sqrt(vhat_G) + eps)        vhat_G = mean over the G batches of g_b^2 (elementwise)
+      adamv25_g<G>  dB = -gbar_G / (sqrt(vhat_run25) + eps)    the run's own Adam second moment at checkpoint-25
+                                                               (exp_avg_sq / (1 - beta2^25), B entries)
+      adam_run1     dB = -g1 / (|g1| + eps)                    bias-corrected Adam step 1 on the run's step-0 batch
+      adam_run2     dB = -mhat_2 / (sqrt(vhat_2) + eps)        the run's first REALISED update (step 2; step 1 has lr 0)
+    g_b = s P_b is the B-gradient of batch b, clipped at global norm 1.0 as the trainer clips it; gbar_G = mean of the
+    first G clipped g_b. Matched controls, from the same random draws as rand_lora (Part 1) and rand_lora_r<j>
+    (x_j = R_j A^T, rescaled to |gbar_Gmax|): rand_sign_r<j> = -sign(x_j); rand_adamv_r<j> = -x_j / (sqrt(vhat_Gmax)
+    + eps); rand_adamv25_r<j> = -x_j / (sqrt(vhat_run25) + eps). Weight-space norms and inner products with the
+    references go to m3_adam.json (no summary is printed)."""
+    nb = len(P[names[0]])
+    clip = [min(1.0, MAX_GRAD_NORM / (math.sqrt(float(gram_B[b, b])) + 1e-6)) for b in range(nb)]
+    b1, b2 = ADAM_BETAS
+    gs = sorted(set(g for g in args.g_list if g <= nb))
+    Gmax = gs[-1]
+    saved, info = {}, {"clip_coef": clip, "eps": ADAM_EPS, "betas": ADAM_BETAS, "max_grad_norm": MAX_GRAD_NORM}
+
+    def save(name, U, extra=None):
+        d = {n: {"U": U[n], "V": A[n].clone()} for n in names}
+        save_direction(ddir / f"{name}.safetensors", d, {**meta_common, "name": name, "family": name.split("_g")[0],
+                                                          **(extra or {})})
+        saved[name] = U
+
+    # the run's realised second moment at checkpoint-25 (B entries, module order = optimizer order)
+    v25 = None
+    ck = st.run_dir / "grpo" / "checkpoint-25" / "optimizer.pt" if st.run_dir else None
+    if ck is not None and ck.exists():
+        opt = torch.load(ck, map_location="cpu", weights_only=False)
+        state = opt["state"]
+        steps = float(state[0]["step"])
+        v25 = {}
+        for i, n in enumerate(ctx["order"]):
+            sa, sb = state[2 * i]["exp_avg_sq"], state[2 * i + 1]["exp_avg_sq"]
+            assert tuple(sa.shape) == tuple(A[n].shape) and tuple(sb.shape) == tuple(P[n][0].shape), (n, sa.shape, sb.shape)
+            v25[n] = (sb.float() / (1 - b2 ** steps)).cuda()
+        info["v25_step"] = steps
+        del opt, state
+    for G_ in gs:
+        gbar = {n: s * sum(c * P[n][b] for b, c in zip(range(G_), clip)) / G_ for n in names}
+        vhat = {n: s * s * sum((c * P[n][b]) ** 2 for b, c in zip(range(G_), clip)) / G_ for n in names}
+        save(f"sign_g{G_}", {n: -s * torch.sign(gbar[n]) for n in names}, {"n_batches_used": G_})
+        save(f"adamv_g{G_}", {n: -s * gbar[n] / (vhat[n].sqrt() + ADAM_EPS) for n in names}, {"n_batches_used": G_})
+        if v25 is not None:
+            save(f"adamv25_g{G_}", {n: -s * gbar[n] / (v25[n].sqrt() + ADAM_EPS) for n in names}, {"n_batches_used": G_})
+        if G_ == Gmax:
+            gmax, vmax = gbar, vhat
+    gnorm = math.sqrt(sum(float((gmax[n].double() ** 2).sum()) for n in names))
+    # the run's own first Adam steps (clipped as the trainer clips)
+    if ctx and ctx.get("run"):
+        g = {}
+        for k in (0, 1):
+            gk = {n: s * ctx["run"][k][n] for n in names}
+            nk = math.sqrt(sum(float((gk[n].double() ** 2).sum()) for n in names))
+            ck_ = min(1.0, MAX_GRAD_NORM / (nk + 1e-6))
+            g[k] = {n: ck_ * gk[n] for n in names}
+            info[f"run_step{k}_grad_norm"], info[f"run_step{k}_clip"] = nk, ck_
+        save("adam_run1", {n: -s * g[0][n] / (g[0][n].abs() + ADAM_EPS) for n in names}, {"recon": ctx["recon"]})
+        m2 = {n: (b1 * (1 - b1) * g[0][n] + (1 - b1) * g[1][n]) / (1 - b1 ** 2) for n in names}
+        v2 = {n: (b2 * (1 - b2) * g[0][n] ** 2 + (1 - b2) * g[1][n] ** 2) / (1 - b2 ** 2) for n in names}
+        save("adam_run2", {n: -s * m2[n] / (v2[n].sqrt() + ADAM_EPS) for n in names}, {"recon": ctx["recon"]})
+    # matched random controls (j = 1: Part 1's rand_lora; j >= 2: rand_lora_r<j>)
+    for j in range(1, args.n_rand + 1):
+        src = (Path(args.m3_ref_dir) / "directions" / st.dtag / "rand_lora.safetensors") if j == 1 else \
+            (ddir / f"rand_lora_r{j}.safetensors")
+        if not src.exists():
+            continue
+        Rd = load_direction(src)
+        x = {n: -Rd[n]["U"].float() / (s * s) for n in names}                  # = R_j A^T
+        xn = math.sqrt(sum(float((x[n].double() ** 2).sum()) for n in names))
+        x = {n: x[n] * (gnorm / max(xn, 1e-300)) for n in names}
+        save(f"rand_sign_r{j}", {n: -s * torch.sign(x[n]) for n in names}, {"source": str(src)})
+        save(f"rand_adamv_r{j}", {n: -s * x[n] / (vmax[n].sqrt() + ADAM_EPS) for n in names}, {"source": str(src)})
+        if v25 is not None:
+            save(f"rand_adamv25_r{j}", {n: -s * x[n] / (v25[n].sqrt() + ADAM_EPS) for n in names}, {"source": str(src)})
+    # weight-space norms and inner products with the references: <U A, R> = <U, R A^T>
+    Z = {}
+    for rn in ref_names:
+        Z[rn] = {n: (refs[rn][n]["U"].double().cuda() @ (refs[rn][n]["V"].double().cuda() @ A[n].double().T)) for n in names}
+    for name in ("v0_lora_g%d" % g for g in gs):
+        dd = load_direction(ddir / f"{name}.safetensors")
+        saved[name] = {n: dd[n]["U"] for n in names}
+    stats = {}
+    for name, U in saved.items():
+        nrm2 = sum(float(((U[n].double() @ (A[n].double() @ A[n].double().T)) * U[n].double()).sum()) for n in names)
+        stats[name] = {"norm": math.sqrt(nrm2),
+                       "ip": {rn: sum(float((U[n].double() * Z[rn][n]).sum()) for n in names) for rn in ref_names}}
+    (ddir / "m3_adam.json").write_text(json.dumps({**meta_common, **info, "refs": ref_names,
+                                                   "directions": stats}, indent=1, default=str))
+    print(f"[m3-adam] {st.dtag}: saved {sorted(saved)}", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1108,6 +1261,9 @@ def build_parser():
                    help="M3: dir whose directions/<dtag>/v0_lora.safetensors (Part 1's v0) enters the weight cosines.")
     p.add_argument("--save_batch_grads", action="store_true", help="M3: also save the per-batch G_b A^T (fp32).")
     p.add_argument("--no_raw_stats", action="store_true", help="M3: skip the dense raw-gradient running sums.")
+    p.add_argument("--adam_dirs", action="store_true",
+                   help="M3: also save the optimiser-geometry directions (sign_g<G>, adamv_g<G>, adamv25_g<G>, "
+                        "adam_run1, adam_run2) and their matched random controls (m3_adam_directions).")
     p.add_argument("--samples_dir", default=None,
                    help="phi: read samples_<tag>_A/B.jsonl from here (default --out_dir), e.g. Part 1's set A.")
     p.add_argument("--rand_match", default="v0_lora",
