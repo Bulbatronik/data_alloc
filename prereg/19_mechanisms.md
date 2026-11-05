@@ -192,3 +192,60 @@ During a training-health check (`runs/reviews/round4/scratch/health/train_health
 - For M6 the logged training clipped ratio is essentially M6a's registered statistic: the Gemma dr_grpo runs showed rising lengths and clipped ratios of 0.47–0.88 at their latest checkpoints. It was seen before scoring.
 - No test-set outcome was read.
 - No design, threshold or decision was changed, and none can be: all runs were launched under the frozen scripts on 2026-11-04.
+
+## Part IIb (registered 2026-11-05, before any M3 or M4 statistic was computed)
+
+Scorer `score_prereg19_grad.py`. Tooling report: `runs/reviews/round4/scratch/T19_grad_report.md` (§§0–9). Frozen scripts (`prereg/scripts/p19/`; SHA-256):
+- `score_prereg19_grad.py` 2862110819e1e692b292a21cfe815c4817c3d9faf668d1bb0a1b8c872256ade5
+- `galign.py` 1411fac59926cda22f03c1725c4c4f47ae9d62714579acd57b4d833fa1300e84
+- `m3phi.py` bb5fefd50afd19e4a6c9561ce993a77912d619d88ca332ff723ab94c7c559741
+- `S19_m3.sbatch` 0fba1116b01896b2b25b371e1d7f0cf4fb869620ae019897d4e6ce0fb70aba34
+- `S19_m4.sbatch` 7971dc310da5c2b861bfb920b30923b3c33aa30f2972cb3a86bd89bc582c0f75
+
+`firstgrad.py` M3 stages are at commits ca28859 and 0756a02; regression showed Part 1 outputs identical, 17/17 files.
+
+**Correction to the plan, disclosed.** Part 1's step-0 direction v0 was not one batch: it averaged 256 prompts × 8 rollouts, about 32 TRL batches. Its stored diagnostic weight-space cosine with the realised 25-step update was seen during tooling: 0.068 (and 0.132 with v150, gold s42). Hence the optimiser-geometry hypothesis.
+
+### M3 — why the first-gradient test failed: noise, or optimiser geometry?
+**Hypotheses.**
+- (i) Gradient noise: the raw step-0 direction predicts per-item reversion once averaged over enough batches.
+- (ii) Optimiser geometry: training uses Adam, whose steps are sign- and second-moment-preconditioned, so the raw gradient is the wrong first-order direction.
+
+**Design.**
+- At the three merged-fresh gold starts (seeds 42–44) and the untrained start (placebo), the expected step-0 GRPO gradient over G ∈ {1, 4, 16, 64, 256} i.i.d. batches.
+- Directions: raw; sign; Adam-preconditioned with v̂ from the batches (adamv); Adam with the run's own step-25 v̂; the run's own first Adam steps. Each comes with matched random controls through the same preconditioner.
+- Per-item φ is exact (m3phi.py) on Part 1's set-A items (600 GSM8K items, 16 samples). Part 1's frozen statistics (K1, K2) apply per direction.
+
+**Registered predictions** (lenient primary):
+
+| ID | Prediction | Calibration |
+|---|---|---|
+| **M3-A** (primary) | adamv at G = 256 passes at ≥ 2 of 3 gold starts: K1 ≤ −0.08, K1 ≥ 0.05 below the mean of its matched controls, ≥ 0.05 below its placebo, **and ≥ 0.08 below raw at G = 256** at the same start | FP ≤ 0.010 when Adam and raw carry equal signal; power 0.50–1.00 when Adam carries the signal |
+| M3-1 | raw passes the frozen K1′ rule at ≥ 2 of 3 starts at G = 16 and at G = 64 (G = 256 reported) | — |
+| M3-2 | the slope of mean raw K1 on log₂ G has a 95% CI below 0 (more averaging helps) | — |
+| Guard M3-3 | if M3-1 fails while SNR_256 ≥ 4 at ≥ 2 starts, first-order signal is absent, not noise-limited | — |
+
+**Reading.**
+- M3-A holds: the first-gradient failure is explained by optimiser geometry. The raw gradient is not the direction training takes.
+- M3-1 holds and M3-A does not: the failure was noise-limited.
+- No direction passes at any G (including the run's own first Adam steps): per-item reversion is a multi-step effect, not readable at step 0.
+- Reported: sign, adamv25, the run's own first Adam steps, K2 per direction, SNR, and cosines with v25 and v150.
+
+### M4 — why the off-distribution test failed: proxy or account?
+**Design.**
+- Per-item LoRA-gradient alignment a(x) with the span of the RL-pool gradients (sketch d = 8192, r = 64; rows weighted √(p(1−p))).
+- Starts: gold-250 s42 merged-fresh (primary) and untrained (replication).
+- Sets: GSM8K test, GSM-Plus, SVAMP, MATH-600, and the RL pool.
+
+**Registered predictions.**
+- **M4-a (proxy).** The cross-fitted ratio A_off/A_in:
+  - CI lower bound ≥ 0.8: dataset distance does not separate gradient alignment, which explains why the registered proxy failed;
+  - CI upper bound < 0.8: off-distribution alignment is lower;
+  - otherwise inconclusive.
+  - "Robust" requires the same reading at d ∈ {4096, 8192} × r ∈ {16, 64, 256}.
+- **M4-b (account).** The count-stratified tercile contrast of the cross-fitted ΔD̂ product (gold-250 ΔD), pooled over the four sets, has a hierarchical 95% CI above 0.
+  - Calibration: FP 0.03 and power 0.73 pooled.
+  - If M4-b fails, the linear account does not describe these runs.
+- The plan's Spearman(a, |ΔD|) had 8–28% false positives in null worlds. It is reported only.
+
+**Scoring.** `python -I prereg/scripts/p19/score_prereg19_grad.py --schema_only`, then `--unblind --part all` (CPU, Slurm). Output: `runs/theory/scratch/score_prereg19_grad_out.txt`.
